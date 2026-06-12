@@ -1,0 +1,545 @@
+const express = require('express');
+const router = express.Router();
+const { db } = require('../config/supabase');
+const authMiddleware = require('../middleware/auth');
+
+// @route   GET /api/properties
+// @desc    Get all properties for the authenticated owner
+// @access  Private
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    const properties = await db.select('properties', { owner_id: req.user.id });
+    
+    // Fetch related images and tags to populate the card view
+    for (let prop of properties) {
+      prop.images = await db.select('property_images', { property_id: prop.id }, { column: 'display_order', ascending: true });
+      prop.tags = await db.select('property_tags', { property_id: prop.id });
+      prop.amenities = await db.select('property_amenities', { property_id: prop.id });
+      prop.highlights = await db.select('property_highlights', { property_id: prop.id });
+      const pd = await db.selectFirst('property_details', { property_id: prop.id });
+      prop.details = pd ? pd.details : {};
+    }
+
+    res.json(properties);
+  } catch (err) {
+    console.error('Error fetching properties:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   GET /api/properties/:id
+// @desc    Get a property by ID including images, tags, and contacts
+// @access  Private
+router.get('/:id', authMiddleware, async (req, res) => {
+  try {
+    const property = await db.selectFirst('properties', { id: req.params.id, owner_id: req.user.id });
+    if (!property) {
+      return res.status(404).json({ message: 'Property not found or unauthorized' });
+    }
+
+    property.images = await db.select('property_images', { property_id: property.id }, { column: 'display_order', ascending: true });
+    property.tags = await db.select('property_tags', { property_id: property.id });
+    property.contacts = await db.select('property_contacts', { property_id: property.id });
+    property.amenities = await db.select('property_amenities', { property_id: property.id });
+    property.highlights = await db.select('property_highlights', { property_id: property.id });
+    const pd = await db.selectFirst('property_details', { property_id: property.id });
+    property.details = pd ? pd.details : {};
+
+    res.json(property);
+  } catch (err) {
+    console.error('Error fetching property:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   POST /api/properties
+// @desc    Create a new property
+// @access  Private
+router.post('/', authMiddleware, async (req, res) => {
+  const {
+    property_name, property_type, short_description, full_description, address, city, state, pincode,
+    rent_amount, deposit_amount, maintenance_amount, occupancy_type,
+    locality, landmark, tags, contacts, session_id, amenities, highlights, details
+  } = req.body;
+
+  if (!property_name || !property_type || !address || !city || !state || !pincode || !rent_amount || !deposit_amount || !session_id) {
+    return res.status(400).json({ message: 'Missing required property fields or session_id' });
+  }
+
+  try {
+    const newProperty = await db.insert('properties', {
+      owner_id: req.user.id,
+      property_name,
+      property_type,
+      short_description,
+      full_description,
+      address,
+      city,
+      state,
+      pincode,
+      locality,
+      landmark,
+      occupancy_type: occupancy_type || 'Any',
+      rent_amount: Number(rent_amount),
+      deposit_amount: Number(deposit_amount),
+      maintenance_amount: Number(maintenance_amount || 0),
+      status: 'active'
+    });
+
+    await db.insert('property_details', {
+      property_id: newProperty.id,
+      details: details || {}
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // IMAGE PIPELINE: Link temp_uploads → property_images
+    // ═══════════════════════════════════════════════════════════════
+    console.log(`[IMAGE PIPELINE] Property ${newProperty.id} — Querying temp_uploads for session_id=${session_id}, owner_id=${req.user.id}`);
+    const tempUploads = await db.select('temp_uploads', { session_id, owner_id: req.user.id });
+    console.log(`[IMAGE PIPELINE] Found ${tempUploads.length} temp_upload(s) for session ${session_id}`);
+
+    if (tempUploads.length === 0) {
+      console.warn(`[IMAGE PIPELINE] ⚠ ZERO temp_uploads found. Images will NOT be linked to property ${newProperty.id}.`);
+      console.warn(`[IMAGE PIPELINE]   session_id sent: "${session_id}"`);
+      console.warn(`[IMAGE PIPELINE]   owner_id: "${req.user.id}"`);
+      console.warn(`[IMAGE PIPELINE]   frontend images array length: ${req.body.images ? req.body.images.length : 'undefined'}`);
+    }
+
+    let fallbackOrder = 0;
+    let linkedCount = 0;
+    for (const temp of tempUploads) {
+      console.log(`[IMAGE PIPELINE] Processing file ${fallbackOrder + 1}/${tempUploads.length}: fileId=${temp.imagekit_file_id}`);
+      console.log(`[IMAGE PIPELINE]   Original URL: ${temp.image_url}`);
+
+      // Validate the image URL actually resolves before storing
+      const imageUrl = temp.image_url;
+      try {
+        const headCheck = await fetch(imageUrl, { method: 'HEAD' });
+        if (headCheck.status !== 200) {
+          console.error(`[IMAGE PIPELINE] ✘ URL returns HTTP ${headCheck.status} — skipping file ${temp.imagekit_file_id}`);
+          console.error(`[IMAGE PIPELINE]   Broken URL: ${imageUrl}`);
+          fallbackOrder++;
+          continue;
+        }
+        console.log(`[IMAGE PIPELINE]   ✓ URL verified (HTTP ${headCheck.status})`);
+      } catch (headErr) {
+        console.error(`[IMAGE PIPELINE] ✘ URL verification failed for ${temp.imagekit_file_id}:`, headErr.message);
+        fallbackOrder++;
+        continue;
+      }
+
+      const frontendImg = req.body.images ? req.body.images.find((img) => img.imagekit_file_id === temp.imagekit_file_id) : null;
+      const isCover = frontendImg ? frontendImg.is_cover : (fallbackOrder === 0);
+      const displayOrder = frontendImg && frontendImg.display_order !== undefined ? frontendImg.display_order : fallbackOrder;
+
+      const insertedImage = await db.insert('property_images', {
+        property_id: newProperty.id,
+        imagekit_file_id: temp.imagekit_file_id,
+        image_url: imageUrl,
+        thumbnail_url: imageUrl + '?tr=w-200',
+        display_order: displayOrder,
+        is_cover: isCover
+      });
+      console.log(`[IMAGE PIPELINE]   ✓ Inserted property_images row: id=${insertedImage.id}, is_cover=${isCover}, order=${displayOrder}`);
+      linkedCount++;
+      
+      if (isCover) {
+        await db.update('properties', newProperty.id, { cover_image_url: imageUrl });
+        newProperty.cover_image_url = imageUrl;
+        console.log(`[IMAGE PIPELINE]   ✓ Set as cover image for property ${newProperty.id}`);
+      }
+      
+      fallbackOrder++;
+      await db.delete('temp_uploads', temp.id);
+      console.log(`[IMAGE PIPELINE]   ✓ Deleted temp_upload record ${temp.id}`);
+    }
+    console.log(`[IMAGE PIPELINE] ✅ Complete: ${linkedCount}/${tempUploads.length} images linked to property ${newProperty.id}`);
+
+    if (tags && tags.length > 0) {
+      for (const tag of tags) {
+        await db.insert('property_tags', { property_id: newProperty.id, tag_name: tag });
+      }
+    }
+
+    if (contacts && contacts.length > 0) {
+      for (const contact of contacts) {
+        await db.insert('property_contacts', {
+          property_id: newProperty.id,
+          name: contact.name,
+          role: contact.role,
+          phone: contact.phone,
+          whatsapp: contact.whatsapp,
+          email: contact.email
+        });
+      }
+    }
+
+    if (amenities && amenities.length > 0) {
+      for (const amenity of amenities) {
+        await db.insert('property_amenities', { property_id: newProperty.id, amenity_name: amenity });
+      }
+    }
+
+    if (highlights && highlights.length > 0) {
+      for (const hl of highlights) {
+        await db.insert('property_highlights', { property_id: newProperty.id, highlight_text: hl });
+      }
+    }
+
+    res.status(201).json(newProperty);
+  } catch (err) {
+    console.error('Error creating property:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   PUT /api/properties/:id
+router.put('/:id', authMiddleware, async (req, res) => {
+  try {
+    const property = await db.selectFirst('properties', { id: req.params.id, owner_id: req.user.id });
+    if (!property) {
+      return res.status(404).json({ message: 'Property not found or unauthorized' });
+    }
+
+    const {
+      property_name, property_type, short_description, full_description, address, city, state, pincode,
+      rent_amount, deposit_amount, maintenance_amount, occupancy_type,
+      locality, landmark, session_id, tags, amenities, highlights, contacts, details
+    } = req.body;
+
+    const updatedProperty = await db.update('properties', req.params.id, {
+      property_name,
+      property_type,
+      short_description,
+      full_description,
+      address,
+      city,
+      state,
+      pincode,
+      locality,
+      landmark,
+      occupancy_type: occupancy_type || 'Any',
+      rent_amount: Number(rent_amount),
+      deposit_amount: Number(deposit_amount),
+      maintenance_amount: Number(maintenance_amount || 0)
+    });
+
+    const existingDetails = await db.selectFirst('property_details', { property_id: property.id });
+    if (existingDetails) {
+       await db.update('property_details', existingDetails.id, { details: details || {} });
+    } else {
+       await db.insert('property_details', { property_id: property.id, details: details || {} });
+    }
+
+    if (session_id) {
+      // ═══════════════════════════════════════════════════════════════
+      // IMAGE PIPELINE (UPDATE): Link new temp_uploads → property_images
+      // ═══════════════════════════════════════════════════════════════
+      console.log(`[IMAGE PIPELINE:UPDATE] Property ${property.id} — Querying temp_uploads for session_id=${session_id}, owner_id=${req.user.id}`);
+      const tempUploads = await db.select('temp_uploads', { session_id, owner_id: req.user.id });
+      console.log(`[IMAGE PIPELINE:UPDATE] Found ${tempUploads.length} temp_upload(s) for session ${session_id}`);
+
+      if (tempUploads.length > 0) {
+        const currentImages = await db.select('property_images', { property_id: property.id });
+        let fallbackOrder = currentImages.length;
+        let linkedCount = 0;
+        
+        for (const temp of tempUploads) {
+          console.log(`[IMAGE PIPELINE:UPDATE] Processing file: fileId=${temp.imagekit_file_id}`);
+          console.log(`[IMAGE PIPELINE:UPDATE]   Original URL: ${temp.image_url}`);
+
+          // Validate the image URL actually resolves before storing
+          const imageUrl = temp.image_url;
+          try {
+            const headCheck = await fetch(imageUrl, { method: 'HEAD' });
+            if (headCheck.status !== 200) {
+              console.error(`[IMAGE PIPELINE:UPDATE] ✘ URL returns HTTP ${headCheck.status} — skipping file ${temp.imagekit_file_id}`);
+              fallbackOrder++;
+              continue;
+            }
+            console.log(`[IMAGE PIPELINE:UPDATE]   ✓ URL verified (HTTP ${headCheck.status})`);
+          } catch (headErr) {
+            console.error(`[IMAGE PIPELINE:UPDATE] ✘ URL verification failed:`, headErr.message);
+            fallbackOrder++;
+            continue;
+          }
+
+          const frontendImg = req.body.images ? req.body.images.find((img) => img.imagekit_file_id === temp.imagekit_file_id) : null;
+          const isCover = frontendImg ? frontendImg.is_cover : (currentImages.length === 0 && fallbackOrder === 0);
+          const displayOrder = frontendImg && frontendImg.display_order !== undefined ? frontendImg.display_order : fallbackOrder;
+
+          const insertedImage = await db.insert('property_images', {
+            property_id: property.id,
+            imagekit_file_id: temp.imagekit_file_id,
+            image_url: imageUrl,
+            thumbnail_url: imageUrl + '?tr=w-200',
+            display_order: displayOrder,
+            is_cover: isCover
+          });
+          console.log(`[IMAGE PIPELINE:UPDATE]   ✓ Inserted property_images row: id=${insertedImage.id}, is_cover=${isCover}, order=${displayOrder}`);
+          linkedCount++;
+          
+          if (isCover) {
+            const allCurrent = await db.select('property_images', { property_id: property.id });
+            for (const ac of allCurrent) {
+              if (ac.is_cover && ac.imagekit_file_id !== temp.imagekit_file_id) {
+                await db.update('property_images', ac.id, { is_cover: false });
+              }
+            }
+            await db.update('properties', property.id, { cover_image_url: imageUrl });
+            updatedProperty.cover_image_url = imageUrl;
+            console.log(`[IMAGE PIPELINE:UPDATE]   ✓ Set as cover image`);
+          }
+          fallbackOrder++;
+          await db.delete('temp_uploads', temp.id);
+          console.log(`[IMAGE PIPELINE:UPDATE]   ✓ Deleted temp_upload record ${temp.id}`);
+        }
+        console.log(`[IMAGE PIPELINE:UPDATE] ✅ Complete: ${linkedCount}/${tempUploads.length} images linked to property ${property.id}`);
+      }
+    }
+
+    if (tags) {
+      const currentTags = await db.select('property_tags', { property_id: property.id });
+      for (const t of currentTags) await db.delete('property_tags', t.id);
+      for (const tag of tags) await db.insert('property_tags', { property_id: property.id, tag_name: tag });
+    }
+    
+    if (amenities) {
+      const currentAm = await db.select('property_amenities', { property_id: property.id });
+      for (const a of currentAm) await db.delete('property_amenities', a.id);
+      for (const amenity of amenities) await db.insert('property_amenities', { property_id: property.id, amenity_name: amenity });
+    }
+
+    if (highlights) {
+      const currentHl = await db.select('property_highlights', { property_id: property.id });
+      for (const h of currentHl) await db.delete('property_highlights', h.id);
+      for (const hl of highlights) await db.insert('property_highlights', { property_id: property.id, highlight_text: hl });
+    }
+
+    if (contacts) {
+      const currentContacts = await db.select('property_contacts', { property_id: property.id });
+      for (const c of currentContacts) await db.delete('property_contacts', c.id);
+      for (const contact of contacts) {
+        await db.insert('property_contacts', {
+          property_id: property.id,
+          name: contact.name,
+          role: contact.role,
+          phone: contact.phone,
+          whatsapp: contact.whatsapp,
+          email: contact.email
+        });
+      }
+    }
+
+    res.json(updatedProperty);
+  } catch (err) {
+    console.error('Error updating property:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   DELETE /api/properties/:id
+// @desc    Delete a property
+// @access  Private
+router.delete('/:id', authMiddleware, async (req, res) => {
+  try {
+    const property = await db.selectFirst('properties', { id: req.params.id, owner_id: req.user.id });
+    if (!property) {
+      return res.status(404).json({ message: 'Property not found or unauthorized' });
+    }
+
+    // Delete physical images from ImageKit first
+    const imagekit = require('../config/imagekit');
+    if (imagekit) {
+      const images = await db.select('property_images', { property_id: property.id });
+      for (const img of images) {
+        try {
+          await imagekit.files.delete(img.imagekit_file_id);
+        } catch (ikErr) {
+          console.error(`Failed to delete ImageKit file ${img.imagekit_file_id}:`, ikErr);
+        }
+      }
+    }
+
+    // ON DELETE CASCADE in DB handles related tags, images, contacts
+    await db.delete('properties', req.params.id);
+    res.json({ message: 'Property deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting property:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
+// --- PROPERTY IMAGES ROUTES ---
+
+// @route   POST /api/properties/:id/images
+// @desc    Add an image to a property
+// @access  Private
+router.post('/:id/images', authMiddleware, async (req, res) => {
+  try {
+    const property = await db.selectFirst('properties', { id: req.params.id, owner_id: req.user.id });
+    if (!property) return res.status(404).json({ message: 'Unauthorized' });
+
+    const { imagekit_file_id, image_url, thumbnail_url, display_order } = req.body;
+    const newImage = await db.insert('property_images', {
+      property_id: property.id,
+      imagekit_file_id,
+      image_url,
+      thumbnail_url,
+      display_order: display_order || 0,
+      is_cover: false
+    });
+    res.status(201).json(newImage);
+  } catch (err) {
+    console.error('Error adding image:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   DELETE /api/properties/:id/images/:imageId
+// @desc    Delete an image from a property
+// @access  Private
+router.delete('/:id/images/:imageId', authMiddleware, async (req, res) => {
+  try {
+    const property = await db.selectFirst('properties', { id: req.params.id, owner_id: req.user.id });
+    if (!property) return res.status(404).json({ message: 'Unauthorized' });
+
+    const image = await db.selectFirst('property_images', { id: req.params.imageId, property_id: property.id });
+    if (!image) return res.status(404).json({ message: 'Image not found' });
+
+    const imagekit = require('../config/imagekit');
+    if (imagekit) {
+      try {
+        await imagekit.files.delete(image.imagekit_file_id);
+      } catch (e) {
+        console.error("Failed to delete from ImageKit:", e);
+      }
+    }
+
+    await db.delete('property_images', req.params.imageId);
+
+    if (image.is_cover) {
+      const remainingImages = await db.select('property_images', { property_id: property.id }, { column: 'display_order', ascending: true });
+      if (remainingImages.length > 0) {
+        await db.update('property_images', remainingImages[0].id, { is_cover: true });
+        // Update properties table for fallback compatibility
+        await db.update('properties', property.id, { cover_image_url: remainingImages[0].image_url });
+      } else {
+        await db.update('properties', property.id, { cover_image_url: null });
+      }
+    }
+
+    res.json({ message: 'Image deleted' });
+  } catch (err) {
+    console.error('Error deleting image:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   PATCH /api/properties/:id/images/:imageId/cover
+// @desc    Set an image as the cover image
+// @access  Private
+router.patch('/:id/images/:imageId/cover', authMiddleware, async (req, res) => {
+  try {
+    const property = await db.selectFirst('properties', { id: req.params.id, owner_id: req.user.id });
+    if (!property) return res.status(404).json({ message: 'Unauthorized' });
+
+    const image = await db.selectFirst('property_images', { id: req.params.imageId, property_id: property.id });
+    if (!image) return res.status(404).json({ message: 'Image not found' });
+
+    // Reset all other images to is_cover = false
+    const currentImages = await db.select('property_images', { property_id: property.id });
+    for (const img of currentImages) {
+      if (img.is_cover) {
+        await db.update('property_images', img.id, { is_cover: false });
+      }
+    }
+
+    // Set new cover
+    await db.update('property_images', req.params.imageId, { is_cover: true });
+    // Update property fallback
+    await db.update('properties', property.id, { cover_image_url: image.image_url });
+
+    res.json({ message: 'Cover image updated' });
+  } catch (err) {
+    console.error('Error setting cover image:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   PATCH /api/properties/:id/images/reorder
+// @desc    Reorder images
+// @access  Private
+router.patch('/:id/images/reorder', authMiddleware, async (req, res) => {
+  try {
+    const property = await db.selectFirst('properties', { id: req.params.id, owner_id: req.user.id });
+    if (!property) return res.status(404).json({ message: 'Unauthorized' });
+
+    const orderData = req.body; // Array of { id, display_order }
+    for (const item of orderData) {
+      await db.update('property_images', item.id, { display_order: item.display_order });
+    }
+    
+    res.json({ message: 'Images reordered' });
+  } catch (err) {
+    console.error('Error reordering images:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
+// --- PROPERTY CONTACTS ROUTES ---
+
+// @route   POST /api/properties/:id/contacts
+// @desc    Add a contact to a property
+// @access  Private
+router.post('/:id/contacts', authMiddleware, async (req, res) => {
+  try {
+    const property = await db.selectFirst('properties', { id: req.params.id, owner_id: req.user.id });
+    if (!property) return res.status(404).json({ message: 'Unauthorized' });
+
+    const newContact = await db.insert('property_contacts', {
+      property_id: property.id,
+      ...req.body
+    });
+    res.status(201).json(newContact);
+  } catch (err) {
+    console.error('Error adding contact:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   PUT /api/properties/:id/contacts/:contactId
+// @desc    Update a contact
+// @access  Private
+router.put('/:id/contacts/:contactId', authMiddleware, async (req, res) => {
+  try {
+    const property = await db.selectFirst('properties', { id: req.params.id, owner_id: req.user.id });
+    if (!property) return res.status(404).json({ message: 'Unauthorized' });
+
+    const updatedContact = await db.update('property_contacts', req.params.contactId, req.body);
+    res.json(updatedContact);
+  } catch (err) {
+    console.error('Error updating contact:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   DELETE /api/properties/:id/contacts/:contactId
+// @desc    Delete a contact
+// @access  Private
+router.delete('/:id/contacts/:contactId', authMiddleware, async (req, res) => {
+  try {
+    const property = await db.selectFirst('properties', { id: req.params.id, owner_id: req.user.id });
+    if (!property) return res.status(404).json({ message: 'Unauthorized' });
+
+    await db.delete('property_contacts', req.params.contactId);
+    res.json({ message: 'Contact deleted' });
+  } catch (err) {
+    console.error('Error deleting contact:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+module.exports = router;

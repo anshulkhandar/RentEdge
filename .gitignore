@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.local
+.env.development
+.env.production
+!.env*.example
+
+*.log
+.DS_Store
+
+# Firebase admin SDK keys
+*-firebase-adminsdk-*.json
+firebase-adminsdk.json
