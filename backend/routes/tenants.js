@@ -92,7 +92,20 @@ router.post('/join-property', authMiddleware, async (req, res) => {
       return res.status(404).json({ message: 'Invalid property code. Property not found.' });
     }
 
-    // 2. Check if request already exists
+    // 2. Check if already a tenant
+    const { data: activeTenancy } = await supabase
+      .from('property_tenants')
+      .select('id, status')
+      .eq('tenant_id', req.user.id)
+      .eq('property_id', property.id)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    if (activeTenancy) {
+      return res.status(400).json({ message: 'You are already an active tenant of this property.' });
+    }
+
+    // 3. Check if request already exists
     const { data: existingReq, error: existingError } = await supabase
       .from('property_join_requests')
       .select('id, status')

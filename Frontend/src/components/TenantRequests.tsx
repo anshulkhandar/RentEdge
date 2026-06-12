@@ -59,10 +59,12 @@ export default function TenantRequests() {
   };
 
   const filteredRequests = requests.filter(r => 
-    r.users.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    r.users.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    r.properties.property_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    r.properties.property_code.toLowerCase().includes(searchQuery.toLowerCase())
+    r.status === 'pending' && (
+      r.users.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      r.users.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      r.properties.property_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      r.properties.property_code.toLowerCase().includes(searchQuery.toLowerCase())
+    )
   );
 
   return (

@@ -27,7 +27,8 @@ import {
   ChevronDown,
   ArrowLeftRight,
   Sun,
-  Moon
+  Moon,
+  Search
 } from 'lucide-react';
 
 import { Property } from './propertiesData';
@@ -223,23 +224,30 @@ export default function OwnerDashboard({ onLogout, onSwitchToTenant }: OwnerDash
   const [myProperties, setMyProperties] = useState<Property[]>([]);
 
   // Selected property in registry dropdown
-  const [selectedRegistryPropertyId, setSelectedRegistryPropertyId] = useState<string>('');
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string>('');
 
-  const [accessCodes, setAccessCodes] = useState<AccessCodeEntry[]>([]);
+  const [allTenants, setAllTenants] = useState<any[]>([]);
+  const [allRequests, setAllRequests] = useState<any[]>([]);
 
   useEffect(() => {
-    async function loadProperties() {
+    async function loadData() {
       try {
-        const data = await api.getProperties();
-        setMyProperties(data);
-        if (data.length > 0) {
-          setSelectedRegistryPropertyId(data[0].id);
+        const [props, tenantsData, requestsData] = await Promise.all([
+          api.getProperties(),
+          api.getPropertyTenants(),
+          api.getJoinRequests()
+        ]);
+        setMyProperties(props);
+        if (props.length > 0) {
+          setSelectedPropertyId(props[0].id);
         }
+        setAllTenants(tenantsData);
+        setAllRequests(requestsData);
       } catch (err) {
-        console.error('Failed to load properties in OwnerDashboard:', err);
+        console.error('Failed to load data in OwnerDashboard:', err);
       }
     }
-    loadProperties();
+    loadData();
   }, []);
 
   const showToast = (msg: string) => {
@@ -247,67 +255,38 @@ export default function OwnerDashboard({ onLogout, onSwitchToTenant }: OwnerDash
     setTimeout(() => setToastMessage(null), 4000);
   };
 
-  const handleGenerateCodeForUnit = (propertyId: string, unitIndex: number) => {
-    const prop = myProperties.find(p => p.id === propertyId);
-    if (!prop) return;
+  const handleRentStatusToggle = async (tenantId: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'paid' ? 'due' : 'paid';
     
-    const newRandomCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const newEntry: AccessCodeEntry = {
-      id: `code-${Date.now()}`,
-      propertyId: prop.id,
-      property: prop.title,
-      unitIndex: unitIndex,
-      code: newRandomCode,
-      status: 'Awaiting Tenant Entry',
-      created: 'Just now'
-    };
-    
-    const updatedCodes = [newEntry, ...accessCodes.filter(c => !(c.propertyId === propertyId && c.unitIndex === unitIndex))];
-    setAccessCodes(updatedCodes);
-    
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('rentedge_access_codes_registry', JSON.stringify(updatedCodes));
-      
-      // Update tenant-facing lookup map
-      const lookupSaved = localStorage.getItem('rentedge_access_codes');
-      let lookupMap: Record<string, any> = {};
-      if (lookupSaved) {
-        try { lookupMap = JSON.parse(lookupSaved); } catch (e) {}
-      }
-      lookupMap[newRandomCode] = {
-        title: `${prop.title} (Unit ${unitIndex})`,
-        owner: localStorage.getItem('rentedge_user_fullname') || 'Property Owner',
-        area: prop.location || prop.area || 'Bandra West, Mumbai',
-        propertyId: prop.id
-      };
-      localStorage.setItem('rentedge_access_codes', JSON.stringify(lookupMap));
+    // Optimistic update
+    setAllTenants(prev => prev.map(t => t.id === tenantId ? { ...t, rent_status: newStatus } : t));
+    showToast(`Rent status marked as ${newStatus.toUpperCase()}`);
+
+    try {
+      await api.updateTenantRentStatus(tenantId, newStatus);
+    } catch (err) {
+      console.error('Failed to update rent status:', err);
+      // Revert on error
+      setAllTenants(prev => prev.map(t => t.id === tenantId ? { ...t, rent_status: currentStatus } : t));
+      showToast('Failed to update rent status');
     }
-    
-    showToast(`Access code ${newRandomCode} generated for ${prop.title} (Unit ${unitIndex})!`);
   };
 
-  const handleCopyCode = (code: string) => {
-    navigator.clipboard.writeText(code);
-    showToast(`Access code ${code} copied to clipboard! Share with tenant.`);
-  };
+  const handleRemoveTenant = async (tenantId: string) => {
+    if (!window.confirm("Are you sure you want to remove this tenant from the property?")) return;
+    
+    // Optimistic update
+    const previousTenants = [...allTenants];
+    setAllTenants(prev => prev.filter(t => t.id !== tenantId));
+    showToast('Tenant removed successfully');
 
-  const handleRevokeCodeForUnit = (id: string, code: string) => {
-    const updatedCodes = accessCodes.filter(c => c.id !== id);
-    setAccessCodes(updatedCodes);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('rentedge_access_codes_registry', JSON.stringify(updatedCodes));
-      
-      // Remove from lookup map
-      const lookupSaved = localStorage.getItem('rentedge_access_codes');
-      if (lookupSaved) {
-        try {
-          const lookupMap = JSON.parse(lookupSaved);
-          delete lookupMap[code];
-          localStorage.setItem('rentedge_access_codes', JSON.stringify(lookupMap));
-        } catch (e) {}
-      }
+    try {
+      await api.removeTenant(tenantId);
+    } catch (err) {
+      console.error('Failed to remove tenant:', err);
+      setAllTenants(previousTenants);
+      showToast('Failed to remove tenant');
     }
-    showToast(`Access code ${code} has been revoked.`);
   };
 
   const navigationItems = [
@@ -352,7 +331,6 @@ export default function OwnerDashboard({ onLogout, onSwitchToTenant }: OwnerDash
     show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 120, damping: 14 } }
   } as const;
 
-  const activeRegProp = myProperties.find(p => p.id === selectedRegistryPropertyId);
 
   return (
     <div className="flex min-h-screen bg-[#F8F9FA] text-slate-800 transition-colors duration-300">
@@ -480,299 +458,282 @@ export default function OwnerDashboard({ onLogout, onSwitchToTenant }: OwnerDash
                 className="space-y-6"
               >
                 
-                {/* KPI Metrics row */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  
-                  {/* Card 1: Collection Status (Green text) */}
-                  <motion.div 
-                    variants={itemVariants}
-                    className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-xs text-left flex flex-col justify-between min-h-[140px] relative overflow-hidden group hover:border-slate-300 transition-colors animate-fade-in"
-                  >
-                    <div className="space-y-3 z-10">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[9.5px] uppercase font-black tracking-widest text-slate-400">
-                          Collection Status
-                        </span>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-black bg-slate-50 text-slate-500 border border-slate-200">
-                          Data unavailable
-                        </span>
-                      </div>
-
-                      <div>
-                        <span className="text-3xl font-black text-slate-350 font-mono tracking-tight">
-                          ₹—
-                        </span>
-                        <span className="block text-[10px] text-slate-400 font-extrabold mt-1">
-                          No active rent collection setup
-                        </span>
-                      </div>
+                {/* 1. Property Selector Carousel */}
+                <div className="flex overflow-x-auto gap-4 pt-3 pb-4 px-1 no-scrollbar items-center -mx-1">
+                  {myProperties.map(prop => {
+                    const pendingRequestsCount = allRequests.filter(r => r.properties.id === prop.id && r.status === 'pending').length;
+                    return (
+                      <button
+                        key={prop.id}
+                        onClick={() => setSelectedPropertyId(prop.id)}
+                        className={`relative min-w-[200px] p-4 rounded-2xl border transition-all cursor-pointer text-left shrink-0 ${
+                          selectedPropertyId === prop.id 
+                            ? 'bg-brand-purple text-white border-brand-purple shadow-md' 
+                            : 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border-slate-200 dark:border-slate-800 hover:border-brand-purple/50'
+                        }`}
+                      >
+                        {pendingRequestsCount > 0 && (
+                          <div className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full shadow-sm border-2 border-white dark:border-slate-900 z-10">
+                            {pendingRequestsCount}
+                          </div>
+                        )}
+                        <h3 className="font-black text-sm truncate pr-3">{prop.property_name || prop.title}</h3>
+                        <p className={`text-[10px] mt-1 font-extrabold uppercase tracking-widest ${selectedPropertyId === prop.id ? 'text-purple-200' : 'text-slate-450 dark:text-slate-400'}`}>
+                          {prop.property_code || 'No Code'}
+                        </p>
+                      </button>
+                    );
+                  })}
+                  {myProperties.length === 0 && (
+                    <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-sm font-bold text-slate-500 w-full flex items-center gap-3">
+                      <Building2 className="w-5 h-5 text-slate-400" />
+                      No properties found. Please list a property to start managing.
                     </div>
-
-                    <div className="pt-3 border-t border-slate-100/70 flex items-center justify-between text-[9px] font-black text-slate-450 mt-4 z-10">
-                      <span className="flex items-center gap-1">
-                        <TrendingUp className="w-3 h-3 text-slate-400" />
-                        0% change
-                      </span>
-                      <span className="text-slate-450 font-black">Escrow —</span>
-                    </div>
-                  </motion.div>
-
-                  {/* Card 2: Late Dues (Orange/Red text) */}
-                  <motion.div 
-                    variants={itemVariants}
-                    className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-xs text-left flex flex-col justify-between min-h-[140px] relative overflow-hidden group hover:border-slate-300 transition-colors animate-fade-in"
-                  >
-                    <div className="space-y-3 z-10">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[9.5px] uppercase font-black tracking-widest text-slate-400">
-                          Late Dues
-                        </span>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-black bg-slate-50 text-slate-500 border border-slate-200">
-                          Data unavailable
-                        </span>
-                      </div>
-
-                      <div>
-                        <span className="text-3xl font-black text-slate-350 font-mono tracking-tight">
-                          ₹—
-                        </span>
-                        <span className="block text-[10px] text-slate-450 font-extrabold mt-1">
-                          No late dues recorded
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="pt-3 border-t border-slate-100/70 flex items-center justify-between text-[9px] font-black text-slate-450 mt-4 z-10">
-                      <span className="flex items-center gap-1 text-slate-400">
-                        <AlertTriangle className="w-3.5 h-3.5 text-slate-400" />
-                        No auto-nudges
-                      </span>
-                      <span className="text-slate-400 font-black">0 Queued</span>
-                    </div>
-                  </motion.div>
-
-                  {/* Card 3: Vacant Units (Neutral text) */}
-                  <motion.div 
-                    variants={itemVariants}
-                    className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-xs text-left flex flex-col justify-between min-h-[140px] relative overflow-hidden group hover:border-slate-300 transition-colors animate-fade-in"
-                  >
-                    <div className="space-y-3 z-10">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[9.5px] uppercase font-black tracking-widest text-slate-400">
-                          Vacant Units
-                        </span>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-black bg-slate-50 text-slate-500 border border-slate-200">
-                          Data unavailable
-                        </span>
-                      </div>
-
-                      <div>
-                        <span className="text-3xl font-black text-slate-350 tracking-tight">
-                          — Units
-                        </span>
-                        <span className="block text-[10px] text-slate-450 font-extrabold mt-1">
-                          No active listings
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="pt-3 border-t border-slate-100/70 flex items-center justify-between text-[9px] font-black text-slate-450 mt-4 z-10">
-                      <span className="flex items-center gap-1 text-slate-400">
-                        <Building2 className="w-3.5 h-3.5" />
-                        No vacancies
-                      </span>
-                      <span className="text-slate-400 font-black">—</span>
-                    </div>
-                  </motion.div>
+                  )}
                 </div>
 
-                {/* Lease Access Code Registry */}
-                <div className="bg-white border border-slate-200/60 rounded-3xl p-6 sm:p-8 shadow-sm text-left space-y-6 animate-fade-in">
-                  <div className="border-b border-slate-100 pb-4 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                    <div>
-                      <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                        <KeyRound className="w-4.5 h-4.5 text-brand-purple" />
-                        Lease Access Code Registry
-                      </h3>
-                      <p className="text-[10px] text-slate-455 font-bold mt-1">
-                        Select one of your properties to view and generate 6-digit access codes for each unit. Only your properties are accessible.
-                      </p>
-                    </div>
-                    
-                    {myProperties.length > 0 && (
-                      <div className="flex flex-col gap-1 w-full sm:w-72 shrink-0">
-                        <label className="text-[9px] uppercase font-bold text-slate-400 tracking-wide">Property Selected</label>
-                        <select
-                          value={selectedRegistryPropertyId}
-                          onChange={(e) => setSelectedRegistryPropertyId(e.target.value)}
-                          className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-bold focus:outline-none focus:border-brand-purple focus:bg-white transition-colors"
-                        >
-                          {myProperties.map(p => (
-                            <option key={p.id} value={p.id}>{p.title}</option>
-                          ))}
-                        </select>
+                {/* Main Content Area */}
+                <div className="flex flex-col xl:flex-row gap-6">
+                  
+                  {/* 2. Global Tenant Panel (Left sidebar on desktop, stacked on mobile) */}
+                  <div className="w-full xl:w-80 shrink-0 flex flex-col">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 p-6 shadow-xs flex flex-col min-h-[400px] xl:h-[calc(100vh-14rem)] sticky top-6">
+                      <div className="mb-4">
+                        <h3 className="text-[10px] uppercase font-black tracking-widest text-slate-400 flex items-center gap-2">
+                          <Users className="w-4 h-4 text-brand-mint" />
+                          Global Tenant Directory
+                        </h3>
+                        <p className="text-[10px] text-slate-500 font-bold mt-1">All tenants across your portfolio</p>
                       </div>
-                    )}
+                      
+                      <div className="relative mb-4 shrink-0">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
+                        <input 
+                          type="text" 
+                          placeholder="Search tenant..." 
+                          className="w-full pl-9 pr-3 py-2.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none focus:border-brand-purple focus:bg-white dark:focus:bg-slate-800 transition-colors"
+                        />
+                      </div>
+                      
+                      <div className="flex-1 overflow-y-auto space-y-3 pr-1 no-scrollbar pb-4">
+                        {allTenants.length > 0 ? allTenants.map(t => (
+                          <div key={t.id} className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800 flex flex-col gap-1.5 transition-colors hover:border-brand-purple/30 cursor-pointer">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 truncate pr-2">{t.users.full_name}</h4>
+                              <span className="text-[8.5px] font-black uppercase px-2 py-0.5 bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 rounded-md shrink-0 border border-emerald-100 dark:border-emerald-500/20">Paid</span>
+                            </div>
+                            <p className="text-[10px] text-slate-500 font-bold truncate flex items-center gap-1.5">
+                              <Building2 className="w-3 h-3 text-slate-400" />
+                              {t.properties.property_name}
+                            </p>
+                          </div>
+                        )) : (
+                          <div className="flex flex-col items-center justify-center h-32 text-center">
+                            <Users className="w-6 h-6 text-slate-300 dark:text-slate-700 mb-2" />
+                            <p className="text-xs font-bold text-slate-400">No tenants found.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="space-y-4">
-                    {activeRegProp ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                        {Array.from({ length: (activeRegProp as any).totalUnits || activeRegProp.beds || 1 }).map((_, idx) => {
-                          const unitNum = idx + 1;
-                          const codeObj = accessCodes.find(c => c.propertyId === activeRegProp.id && c.unitIndex === unitNum);
-
+                  {/* 3. Selected Property Workspace */}
+                  <div className="flex-1 min-w-0 space-y-6">
+                    {myProperties.length > 0 && selectedPropertyId ? (
+                      <>
+                        {/* Property Overview */}
+                        {(() => {
+                          const activeProp = myProperties.find(p => p.id === selectedPropertyId);
+                          if (!activeProp) return null;
                           return (
-                            <div key={unitNum} className="p-4 border border-slate-250/70 hover:border-brand-purple/30 bg-slate-50/50 hover:bg-white rounded-2xl transition-all flex flex-col justify-between gap-4 min-h-[125px]">
-                              <div className="flex justify-between items-center">
-                                <span className="text-xs font-black text-slate-850">Unit #{unitNum}</span>
-                                {codeObj ? (
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8.5px] font-black bg-amber-50 text-amber-600 border border-amber-100 uppercase tracking-wider">
-                                    <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
-                                    Awaiting Link
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8.5px] font-black bg-slate-100 text-slate-500 border border-slate-200 uppercase tracking-wider">
-                                    Vacant
-                                  </span>
-                                )}
-                              </div>
-
-                              {codeObj ? (
-                                <div className="flex items-center gap-2">
-                                  <div className="bg-slate-900 border border-white/5 rounded-xl px-3 py-2 font-mono text-sm font-black text-brand-purple tracking-wider shadow-inner flex items-center justify-between w-full">
-                                    <span>{codeObj.code}</span>
-                                    <button
-                                      onClick={() => handleCopyCode(codeObj.code)}
-                                      className="p-1 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
-                                      title="Copy Code"
-                                    >
-                                      <Copy className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                  <button
-                                    onClick={() => handleRevokeCodeForUnit(codeObj.id, codeObj.code)}
-                                    className="p-2 border border-slate-200 hover:border-red-200 hover:bg-red-50 text-slate-400 hover:text-red-655 rounded-xl transition-colors cursor-pointer shrink-0"
-                                    title="Revoke Code"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
+                            <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-3xl p-6 shadow-xs relative overflow-hidden">
+                              <div className="absolute top-0 right-0 w-32 h-32 bg-brand-purple/5 dark:bg-brand-purple/10 rounded-bl-full -z-10" />
+                              <h3 className="text-[10px] uppercase font-black tracking-widest text-slate-400 mb-5 flex items-center gap-2">
+                                <Building2 className="w-4 h-4 text-brand-purple" />
+                                Property Overview
+                              </h3>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                                <div className="col-span-2 md:col-span-1">
+                                  <p className="text-[9px] text-slate-450 font-extrabold uppercase tracking-widest mb-1.5">Property Name</p>
+                                  <p className="text-sm font-black text-slate-900 dark:text-slate-100 truncate">{activeProp.property_name || activeProp.title}</p>
                                 </div>
-                              ) : (
-                                <button
-                                  onClick={() => handleGenerateCodeForUnit(activeRegProp.id, unitNum)}
-                                  className="w-full py-2.5 bg-brand-purple hover:bg-purple-650 text-white text-[10.5px] font-black rounded-xl transition-all cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
-                                >
-                                  <KeyRound className="w-3.5 h-3.5" />
-                                  Generate Code
-                                </button>
-                              )}
+                                <div>
+                                  <p className="text-[9px] text-slate-450 font-extrabold uppercase tracking-widest mb-1.5">Access Code</p>
+                                  <p className="text-xs font-black text-brand-purple dark:text-brand-purple bg-purple-50 dark:bg-brand-purple/10 px-2 py-1 rounded w-fit border border-purple-100 dark:border-brand-purple/20">{activeProp.property_code || 'N/A'}</p>
+                                </div>
+                                <div>
+                                  <p className="text-[9px] text-slate-450 font-extrabold uppercase tracking-widest mb-1.5">Property Type</p>
+                                  <p className="text-xs font-black text-slate-700 dark:text-slate-300 capitalize">{activeProp.property_type || 'Unknown'}</p>
+                                </div>
+                                <div>
+                                  <p className="text-[9px] text-slate-450 font-extrabold uppercase tracking-widest mb-1.5">Listing Status</p>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={`w-2 h-2 rounded-full ${activeProp.status === 'published' ? 'bg-brand-mint' : 'bg-amber-500'}`} />
+                                    <p className="text-xs font-black text-slate-700 dark:text-slate-300 capitalize">{activeProp.status || 'Draft'}</p>
+                                  </div>
+                                </div>
+                                <div className="col-span-2 md:col-span-4 mt-1 pt-4 border-t border-slate-100 dark:border-slate-800">
+                                  <p className="text-[9px] text-slate-450 font-extrabold uppercase tracking-widest mb-1.5">Location Address</p>
+                                  <p className="text-xs font-bold text-slate-600 dark:text-slate-400">{activeProp.address || activeProp.location || 'Address not specified'}</p>
+                                </div>
+                              </div>
                             </div>
                           );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center py-8 px-4 border border-dashed border-slate-250 rounded-2xl bg-slate-50/50">
-                        <div className="w-12 h-12 bg-white border border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 mb-3">
-                          <KeyRound className="w-5 h-5 text-slate-400" />
+                        })()}
+
+                        {/* Property Tenants & Pending Requests Grid */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                          
+                          {/* Property Tenants */}
+                          <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-3xl p-6 shadow-xs flex flex-col min-h-[300px]">
+                            <h3 className="text-[10px] uppercase font-black tracking-widest text-slate-400 mb-5 flex items-center justify-between">
+                              <span className="flex items-center gap-2">
+                                <Users className="w-4 h-4 text-violet-500" />
+                                Active Tenants
+                              </span>
+                              <span className="bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded-full text-[9px]">
+                                {allTenants.filter(t => t.properties.id === selectedPropertyId).length}
+                              </span>
+                            </h3>
+                            <div className="flex-1 space-y-3 overflow-y-auto pr-1 no-scrollbar">
+                              {(() => {
+                                const propTenants = allTenants.filter(t => t.properties.id === selectedPropertyId);
+                                if (propTenants.length === 0) return (
+                                  <div className="flex flex-col items-center justify-center h-full text-center opacity-70">
+                                    <Users className="w-8 h-8 text-slate-300 dark:text-slate-600 mb-2" />
+                                    <p className="text-xs font-bold text-slate-400">No active tenants</p>
+                                  </div>
+                                );
+                                return propTenants.map(t => (
+                                  <div key={t.id} className="p-3.5 border border-slate-100 dark:border-slate-800 rounded-2xl bg-slate-50/50 dark:bg-slate-800/30 flex items-center justify-between group">
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-8 h-8 rounded-full bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center text-violet-600 dark:text-violet-400 font-black text-xs">
+                                        {t.users.full_name.charAt(0)}
+                                      </div>
+                                      <div>
+                                        <p className="text-xs font-black text-slate-800 dark:text-slate-200">{t.users.full_name}</p>
+                                        <p className="text-[10px] text-slate-500 font-bold mt-0.5">{t.users.phone || 'No phone'}</p>
+                                      </div>
+                                    </div>
+                                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <button onClick={() => setActiveTab('tenants')} className="text-[9px] font-black text-brand-purple hover:text-purple-700 bg-purple-50 hover:bg-purple-100 dark:bg-brand-purple/10 dark:hover:bg-brand-purple/20 px-2.5 py-1.5 rounded-lg transition-colors uppercase tracking-widest cursor-pointer">View</button>
+                                      <button onClick={() => handleRemoveTenant(t.id)} className="text-[9px] font-black text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-950/50 px-2.5 py-1.5 rounded-lg transition-colors uppercase tracking-widest cursor-pointer">Remove</button>
+                                    </div>
+                                  </div>
+                                ));
+                              })()}
+                            </div>
+                          </div>
+
+                          {/* Pending Requests */}
+                          <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-3xl p-6 shadow-xs flex flex-col min-h-[300px]">
+                            <h3 className="text-[10px] uppercase font-black tracking-widest text-slate-400 mb-5 flex items-center justify-between">
+                              <span className="flex items-center gap-2">
+                                <BellRing className="w-4 h-4 text-amber-500" />
+                                Join Requests
+                              </span>
+                              <span className="bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full text-[9px]">
+                                {allRequests.filter(r => r.properties.id === selectedPropertyId && r.status === 'pending').length}
+                              </span>
+                            </h3>
+                            <div className="flex-1 space-y-3 overflow-y-auto pr-1 no-scrollbar">
+                              {(() => {
+                                const propRequests = allRequests.filter(r => r.properties.id === selectedPropertyId && r.status === 'pending');
+                                if (propRequests.length === 0) return (
+                                  <div className="flex flex-col items-center justify-center h-full text-center opacity-70">
+                                    <Inbox className="w-8 h-8 text-slate-300 dark:text-slate-600 mb-2" />
+                                    <p className="text-xs font-bold text-slate-400">No pending requests</p>
+                                  </div>
+                                );
+                                return propRequests.map(r => (
+                                  <div key={r.id} className="p-4 border border-amber-200/60 dark:border-amber-900/40 rounded-2xl bg-amber-50/50 dark:bg-amber-900/10 flex flex-col gap-3">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                                        <p className="text-xs font-black text-slate-800 dark:text-slate-200">{r.users.full_name}</p>
+                                      </div>
+                                      <span className="text-[9px] font-black text-slate-500">Just now</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <button className="flex-1 py-2 bg-brand-mint text-white text-[10px] font-black rounded-xl cursor-pointer hover:bg-emerald-600 transition-colors shadow-sm">Approve</button>
+                                      <button className="flex-1 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-red-50 hover:text-red-600 hover:border-red-200 dark:hover:bg-red-950/30 dark:hover:border-red-900/50 text-[10px] font-black rounded-xl cursor-pointer transition-colors">Reject</button>
+                                    </div>
+                                  </div>
+                                ));
+                              })()}
+                            </div>
+                          </div>
                         </div>
-                        <h4 className="text-xs font-black text-slate-900">No Properties Registered</h4>
-                        <p className="text-[10px] text-slate-500 font-semibold text-center mt-1 max-w-sm leading-normal">
-                          List a property to start generating unit access codes.
-                        </p>
+
+                        {/* Rent Management Panel */}
+                        <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-3xl p-6 shadow-xs overflow-hidden">
+                          <h3 className="text-[10px] uppercase font-black tracking-widest text-slate-400 mb-5 flex items-center gap-2">
+                            <Wallet className="w-4 h-4 text-emerald-500" />
+                            Rent & Collections Ledger
+                          </h3>
+                          <div className="overflow-x-auto -mx-6 px-6">
+                            <table className="w-full text-left border-collapse min-w-[600px]">
+                              <thead>
+                                <tr className="border-b border-slate-100 dark:border-slate-800 text-[9px] uppercase font-black text-slate-400 tracking-wider">
+                                  <th className="pb-3 pl-2">Tenant</th>
+                                  <th className="pb-3">Rent Amount</th>
+                                  <th className="pb-3">Due Date</th>
+                                  <th className="pb-3">Status</th>
+                                  <th className="pb-3 pr-2 text-right">Manual Override</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
+                                {(() => {
+                                  const propTenants = allTenants.filter(t => t.properties.id === selectedPropertyId);
+                                  if (propTenants.length === 0) return (
+                                    <tr><td colSpan={6} className="py-12 text-center text-xs font-bold text-slate-400">No active tenants to manage rent for.</td></tr>
+                                  );
+                                  return propTenants.map(t => {
+                                    const isPaid = t.rent_status === 'paid' || !t.rent_status; // default to paid if missing
+                                    return (
+                                      <tr key={t.id} className="text-xs font-bold text-slate-800 dark:text-slate-200 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
+                                        <td className="py-4 pl-2">{t.users.full_name}</td>
+                                        <td className="py-4 font-mono text-slate-600 dark:text-slate-300">₹{t.properties.rent_amount || '—'}</td>
+                                        <td className="py-4 text-slate-500 text-[11px]">1st of Month</td>
+                                        <td className="py-4">
+                                          {isPaid ? (
+                                            <span className="inline-flex items-center px-2 py-1 rounded-md text-[9px] font-black bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 uppercase border border-emerald-100 dark:border-emerald-500/20 tracking-wider">
+                                              Paid
+                                            </span>
+                                          ) : (
+                                            <span className="inline-flex items-center px-2 py-1 rounded-md text-[9px] font-black bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400 uppercase border border-amber-200 dark:border-amber-900/50 tracking-wider">
+                                              Due
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td className="py-4 pr-2 text-right">
+                                          <button 
+                                            onClick={() => handleRentStatusToggle(t.id, isPaid ? 'paid' : 'due')}
+                                            className="text-[9px] font-black text-slate-500 hover:text-brand-purple dark:hover:text-brand-purple bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-brand-purple/50 dark:hover:border-brand-purple/50 px-3 py-1.5 rounded-lg transition-colors uppercase tracking-widest cursor-pointer shadow-sm"
+                                          >
+                                            {isPaid ? 'Mark Due' : 'Mark Paid'}
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    );
+                                  });
+                                })()}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                      </>
+                    ) : (
+                      <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-3xl p-8 flex flex-col items-center justify-center text-center h-[600px] shadow-xs">
+                        <div className="w-20 h-20 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mb-6">
+                          <Building2 className="w-8 h-8 text-slate-300 dark:text-slate-600" />
+                        </div>
+                        <h3 className="text-base font-black text-slate-800 dark:text-slate-200">No Property Selected</h3>
+                        <p className="text-xs text-slate-500 font-semibold mt-2 max-w-sm">Select a property from the carousel above to view its overview, manage tenants, review requests, and track rent collections.</p>
                       </div>
                     )}
                   </div>
-                </div>
-
-                {/* Tenant Roster Grid */}
-                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-                  
-                  {/* Table Card (Takes 2 columns on large screen) */}
-                  <motion.div 
-                    variants={itemVariants}
-                    className="bg-white rounded-2xl border border-slate-200/60 p-6 shadow-xs xl:col-span-2 text-left"
-                  >
-                    <span className="block text-[10px] uppercase font-black tracking-widest text-slate-400 mb-4">
-                      Tenant Roster
-                    </span>
-
-                    <div className="overflow-x-auto">
-                      <table className="w-full border-collapse text-left">
-                        <thead>
-                          <tr className="border-b border-slate-100 text-[10px] uppercase font-black text-slate-400 tracking-wider">
-                            <th className="pb-3 pl-2">Tenant</th>
-                            <th className="pb-3">Property</th>
-                            <th className="pb-3">Rent</th>
-                            <th className="pb-3">Status</th>
-                            <th className="pb-3">RentEdge Score</th>
-                            <th className="pb-3 pr-2 text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50 text-xs font-semibold text-slate-700">
-                          <tr>
-                            <td colSpan={6} className="py-8 text-center text-slate-400 font-semibold">
-                              No tenants found
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </motion.div>
-
-                  {/* Actions Column */}
-                  <motion.div 
-                    variants={itemVariants}
-                    className="bg-white rounded-2xl border border-slate-200/60 p-6 shadow-xs flex flex-col justify-between"
-                  >
-                    <div>
-                      <span className="block text-[10px] uppercase font-black tracking-widest text-slate-400 mb-4">
-                        Quick Actions
-                      </span>
-
-                      <div className="flex flex-col gap-3">
-                        <button
-                          onClick={() => {
-                            setIsGeneratingAgreement(true);
-                            setAgreementStep('form');
-                          }}
-                          className="w-full p-4 rounded-xl border border-slate-200/60 hover:border-brand-purple/20 bg-slate-50 hover:bg-white text-left transition-all duration-200 group cursor-pointer"
-                        >
-                          <div className="flex justify-between items-start">
-                            <div className="p-2 bg-purple-50 text-brand-purple rounded-lg group-hover:bg-brand-purple group-hover:text-white transition-colors">
-                              <FileCheck className="w-4.5 h-4.5" />
-                            </div>
-                            <Plus className="w-3.5 h-3.5 text-slate-400 group-hover:text-brand-purple transition-colors" />
-                          </div>
-                          <h4 className="text-xs font-black text-slate-805 mt-3">Generate Lease Agreement</h4>
-                          <p className="text-[10px] text-slate-400 mt-1 font-semibold leading-relaxed">
-                            Draft a verified rental agreement integrated with e-Stamping rails.
-                          </p>
-                        </button>
-
-                        <button 
-                          onClick={() => handleSendReminder('All Pending')}
-                          className="w-full p-4 rounded-xl border border-slate-200/60 hover:border-brand-purple/20 bg-slate-50 hover:bg-white text-left transition-all duration-200 group cursor-pointer"
-                        >
-                          <div className="flex justify-between items-start">
-                            <div className="p-2 bg-amber-50 text-amber-500 rounded-lg group-hover:bg-amber-500 group-hover:text-white transition-colors">
-                              <BellRing className="w-4.5 h-4.5" />
-                            </div>
-                            <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-brand-purple transition-colors" />
-                          </div>
-                          <h4 className="text-xs font-black text-slate-805 mt-3">Send Payment Reminders</h4>
-                          <p className="text-[10px] text-slate-400 mt-1 font-semibold leading-relaxed">
-                            Nudge all tenants with outstanding rent values via automated UPI intent links.
-                          </p>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="mt-6 pt-4 border-t border-slate-100 text-[9px] text-slate-400 font-extrabold flex items-center justify-between">
-                      <span>Node Status: IDFC Node 02</span>
-                      <span className="w-2 h-2 rounded-full bg-brand-mint animate-pulse" />
-                    </div>
-                  </motion.div>
 
                 </div>
 

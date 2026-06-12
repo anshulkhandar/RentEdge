@@ -135,6 +135,19 @@ export const api = {
     return apiFetch('/properties/tenants');
   },
 
+  async updateTenantRentStatus(tenantId: string, rent_status: 'paid' | 'due') {
+    return apiFetch(`/properties/tenants/${tenantId}/rent-status`, {
+      method: 'PUT',
+      body: JSON.stringify({ rent_status })
+    });
+  },
+
+  async removeTenant(tenantId: string) {
+    return apiFetch(`/properties/tenants/${tenantId}`, {
+      method: 'DELETE'
+    });
+  },
+
   async getProperty(id: string) {
     return apiFetch(`/properties/${id}`);
   },

@@ -117,6 +117,7 @@ router.get('/tenants', authMiddleware, async (req, res) => {
       .select(`
         id,
         status,
+        rent_status,
         joined_at,
         users!property_tenants_tenant_id_fkey (
           id,
@@ -138,6 +139,69 @@ router.get('/tenants', authMiddleware, async (req, res) => {
     res.json(tenancies);
   } catch (err) {
     console.error('Error fetching properties tenants:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   PUT /api/properties/tenants/:id/rent-status
+// @desc    Update rent status for a property tenant
+// @access  Private
+router.put('/tenants/:id/rent-status', authMiddleware, async (req, res) => {
+  const { rent_status } = req.body;
+  if (!['paid', 'due'].includes(rent_status)) {
+    return res.status(400).json({ message: 'Invalid rent status' });
+  }
+
+  try {
+    const { data: tenant, error: fetchError } = await supabase
+      .from('property_tenants')
+      .select('id, properties!inner(owner_id)')
+      .eq('id', req.params.id)
+      .single();
+
+    if (fetchError || !tenant || tenant.properties.owner_id !== req.user.id) {
+      return res.status(404).json({ message: 'Tenant not found or unauthorized' });
+    }
+
+    const { data: updated, error } = await supabase
+      .from('property_tenants')
+      .update({ rent_status })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ message: 'Rent status updated successfully', data: updated });
+  } catch (err) {
+    console.error('Error updating rent status:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   DELETE /api/properties/tenants/:id
+// @desc    Remove a tenant from a property
+// @access  Private
+router.delete('/tenants/:id', authMiddleware, async (req, res) => {
+  try {
+    const { data: tenant, error: fetchError } = await supabase
+      .from('property_tenants')
+      .select('id, properties!inner(owner_id)')
+      .eq('id', req.params.id)
+      .single();
+
+    if (fetchError || !tenant || tenant.properties.owner_id !== req.user.id) {
+      return res.status(404).json({ message: 'Tenant not found or unauthorized' });
+    }
+
+    const { error: deleteError } = await supabase
+      .from('property_tenants')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (deleteError) throw deleteError;
+    res.json({ message: 'Tenant removed successfully' });
+  } catch (err) {
+    console.error('Error removing tenant:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -164,7 +228,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
     const { data: tenancies } = await supabase
       .from('property_tenants')
       .select(`
-        id, status, joined_at,
+        id, status, rent_status, joined_at,
         users!property_tenants_tenant_id_fkey (id, full_name, email, phone)
       `)
       .eq('property_id', property.id);

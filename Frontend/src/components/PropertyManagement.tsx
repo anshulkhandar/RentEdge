@@ -1331,14 +1331,35 @@ export default function PropertyManagement() {
                     </h4>
                     
                     {(() => {
-                      const score = 25 + (formData.images.length > 0 ? 25 : 0) + (formData.contacts.length > 0 ? 20 : 0) + (formData.amenities.length > 0 ? 15 : 0) + (formData.tags.length > 0 ? 15 : 0);
+                      let score = 0;
+                      // Basic Details (30%)
+                      if (formData.property_name) score += 10;
+                      if (formData.address) score += 10;
+                      if (formData.rent_amount) score += 10;
+                      
+                      // Media (25%)
+                      if (formData.images.length >= 3) score += 25;
+                      else if (formData.images.length > 0) score += 15;
+                      
+                      // Features (25%)
+                      if (formData.amenities.length >= 3) score += 15;
+                      else if (formData.amenities.length > 0) score += 5;
+                      if (formData.highlights.filter(Boolean).length > 0) score += 10;
+                      
+                      // Contacts (20%)
+                      if (formData.contacts.some(c => c.name && c.phone)) score += 20;
+
+                      score = Math.min(100, score);
+
                       return (
                         <div className="bg-brand-purple/5 border border-brand-purple/20 p-4 rounded-xl flex items-center justify-between mb-6">
                           <div>
                             <h5 className="text-xs font-bold text-slate-700">Listing Completeness</h5>
                             <p className="text-[10px] text-slate-500 font-medium mt-0.5">A higher score ranks better in search</p>
                           </div>
-                          <div className="text-xl font-black text-brand-purple">{score}%</div>
+                          <div className={`text-xl font-black ${score === 100 ? 'text-emerald-500' : score > 70 ? 'text-brand-purple' : 'text-amber-500'}`}>
+                            {score}%
+                          </div>
                         </div>
                       );
                     })()}

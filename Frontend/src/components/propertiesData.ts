@@ -24,6 +24,11 @@ export interface Property {
   ownerName: string;
   ownerPhoneMasked: string;
   ownerPhoneFull: string;
+  property_code?: string;
+  property_type?: string;
+  property_name?: string;
+  status?: string;
+  address?: string;
 }
 
 export const mockProperties: Property[] = [];
