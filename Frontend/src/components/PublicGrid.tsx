@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ChevronLeft, 
@@ -19,6 +19,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { Property, mockProperties } from './propertiesData';
+import { api } from './api';
 
 interface PublicGridProps {
   searchFilters?: { location: string; type: string; budget: string };
@@ -41,8 +42,22 @@ export default function PublicGrid({
   const [favorites, setFavorites] = useState<string[]>([]);
   const [carouselIndex, setCarouselIndex] = useState<{ [key: string]: number }>({});
 
+  const [properties, setProperties] = useState<Property[]>([]);
+
+  useEffect(() => {
+    api.getPublicProperties({ limit: 3 }).then(res => {
+      if (res.properties && res.properties.length > 0) {
+        setProperties(res.properties);
+      } else {
+        setProperties(mockProperties);
+      }
+    }).catch(() => {
+      setProperties(mockProperties);
+    });
+  }, []);
+
   // Filter application logic
-  const filteredProperties = mockProperties.filter((prop) => {
+  const filteredProperties = properties.filter((prop) => {
     const cityMatch = selectedCity === 'All' 
       ? (searchFilters 
           ? prop.city.toLowerCase().includes(searchFilters.location.toLowerCase()) || 
@@ -63,19 +78,6 @@ export default function PublicGrid({
       budgetMatch = prop.price >= 40000 && prop.price <= 80000;
     } else if (selectedBudget === '₹80k+') {
       budgetMatch = prop.price > 80000;
-    }
-
-    if (searchFilters && selectedBudget === 'All') {
-      const budgetStr = searchFilters.budget;
-      if (budgetStr.includes('-')) {
-        const parts = budgetStr.split('-');
-        const minVal = parseInt(parts[0].replace(/[^0-9]/g, '')) || 0;
-        const maxVal = parseInt(parts[1].replace(/[^0-9]/g, '')) || Infinity;
-        budgetMatch = prop.price >= minVal && prop.price <= maxVal;
-      } else if (budgetStr.includes('+')) {
-        const minVal = parseInt(budgetStr.replace(/[^0-9]/g, '')) || 0;
-        budgetMatch = prop.price >= minVal;
-      }
     }
 
     const typeMatch = searchFilters
@@ -206,9 +208,14 @@ export default function PublicGrid({
                     ))}
                   </div>
 
-                  {/* Verified Badge */}
-                  <div className="absolute top-4 left-4 pointer-events-none">
-                    <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#10B981] text-[10px] font-black text-white shadow-md uppercase tracking-wide">
+                  {/* Verified / Pioneer Badge */}
+                  <div className="absolute top-4 left-4 pointer-events-none flex flex-col gap-2">
+                    {prop.is_city_pioneer && (
+                      <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-200 to-yellow-400 text-[10px] font-black text-yellow-900 shadow-md uppercase tracking-wide border border-yellow-300">
+                        👑 City Pioneer
+                      </span>
+                    )}
+                    <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#10B981] text-[10px] font-black text-white shadow-md uppercase tracking-wide w-max">
                       <CheckCircle2 className="w-3.5 h-3.5" /> Verified
                     </span>
                   </div>
@@ -231,27 +238,71 @@ export default function PublicGrid({
                       <span>{prop.area}, {prop.city}</span>
                     </div>
 
-                    {/* Title */}
-                    <h3 className="text-sm font-black text-slate-800 tracking-tight leading-snug group-hover:text-brand-purple transition-colors">
-                      {prop.title}
-                    </h3>
+                    {/* Title & Type */}
+                    <div>
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 mb-1">
+                        <span className="bg-slate-100 px-1.5 py-0.5 rounded">{prop.property_type || prop.type}</span>
+                        {prop.occupancy_type && <span className="bg-slate-100 px-1.5 py-0.5 rounded">{prop.occupancy_type}</span>}
+                      </div>
+                      <h3 className="text-sm font-black text-slate-800 tracking-tight leading-snug group-hover:text-brand-purple transition-colors">
+                        {prop.title}
+                      </h3>
+                    </div>
                   </div>
 
                   {/* Specs Box */}
                   <div className="grid grid-cols-3 gap-2.5 py-2.5 border-y border-slate-100 text-slate-500 text-[10.5px] font-bold">
-                    <div className="flex flex-col items-center justify-center bg-slate-50 rounded-xl p-2">
-                      <BedDouble className="w-4 h-4 text-slate-400 mb-1" />
-                      <span>{prop.bhk} BHK</span>
-                    </div>
-                    <div className="flex flex-col items-center justify-center bg-slate-50 rounded-xl p-2">
-                      <Bath className="w-4 h-4 text-slate-400 mb-1" />
-                      <span>{prop.baths} Bath</span>
-                    </div>
-                    <div className="flex flex-col items-center justify-center bg-slate-50 rounded-xl p-2">
-                      <Scaling className="w-4 h-4 text-slate-400 mb-1" />
-                      <span>{prop.sqft} sqft</span>
-                    </div>
+                    {(prop.property_type === 'PG' || prop.type === 'PG') ? (
+                      <>
+                        <div className="flex flex-col items-center justify-center bg-slate-50 rounded-xl p-2 col-span-1">
+                          <BedDouble className="w-4 h-4 text-slate-400 mb-1" />
+                          <span>{prop.bhk ? `${prop.bhk} Sharing` : 'PG'}</span>
+                        </div>
+                        <div className="flex flex-col items-center justify-center bg-slate-50 rounded-xl p-2 col-span-2">
+                          <Bath className="w-4 h-4 text-slate-400 mb-1" />
+                          <span>Attached/Common</span>
+                        </div>
+                      </>
+                    ) : (prop.property_type === 'Commercial' || prop.type === 'Commercial') ? (
+                      <>
+                        <div className="flex flex-col items-center justify-center bg-slate-50 rounded-xl p-2 col-span-3">
+                          <Scaling className="w-4 h-4 text-slate-400 mb-1" />
+                          <span>{prop.sqft} sqft Commercial Space</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex flex-col items-center justify-center bg-slate-50 rounded-xl p-2">
+                          <BedDouble className="w-4 h-4 text-slate-400 mb-1" />
+                          <span>{prop.bhk} BHK</span>
+                        </div>
+                        <div className="flex flex-col items-center justify-center bg-slate-50 rounded-xl p-2">
+                          <Bath className="w-4 h-4 text-slate-400 mb-1" />
+                          <span>{prop.baths} Bath</span>
+                        </div>
+                        <div className="flex flex-col items-center justify-center bg-slate-50 rounded-xl p-2">
+                          <Scaling className="w-4 h-4 text-slate-400 mb-1" />
+                          <span>{prop.sqft} sqft</span>
+                        </div>
+                      </>
+                    )}
                   </div>
+                  
+                  {/* Smart Tags */}
+                  {(prop.tags && prop.tags.length > 0) && (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {prop.tags.slice(0, 3).map((tag, i) => (
+                        <span key={i} className="text-[9px] font-bold text-slate-500 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
+                          {tag}
+                        </span>
+                      ))}
+                      {prop.tags.length > 3 && (
+                        <span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
+                          +{prop.tags.length - 3}
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   {/* Fintech Parameters with Electric Purple Shield Icons */}
                   <div className="space-y-2 pt-1">

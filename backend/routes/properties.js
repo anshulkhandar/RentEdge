@@ -3,6 +3,34 @@ const router = express.Router();
 const { db, supabase } = require('../config/supabase');
 const authMiddleware = require('../middleware/auth');
 
+function generateSmartTags(tags, details) {
+  let computedTags = [...(tags || [])];
+  if (details && details.classificationAnswers) {
+    const ca = details.classificationAnswers;
+    if (ca.nearMetro) computedTags.push('Near Metro');
+    if (ca.nearBusStop) computedTags.push('Near Bus Stop');
+    if (ca.nearRailwayStation) computedTags.push('Near Railway');
+    if (ca.nearAirport) computedTags.push('Near Airport');
+    if (ca.nearITPark) computedTags.push('Tech Hub');
+    if (ca.nearHospital) computedTags.push('Near Hospital');
+    if (ca.nearCollege) computedTags.push('Near College');
+    if (ca.nearSchool) computedTags.push('Near School');
+    if (ca.gatedCommunity) computedTags.push('Gated Community');
+    if (ca.fireSafety) computedTags.push('Fire Safety');
+    
+    if (ca.suitableFor && ca.suitableFor.length) {
+      ca.suitableFor.forEach(t => computedTags.push(`${t} Friendly`));
+    }
+    if (ca.furnishing && ca.furnishing !== 'Unfurnished') {
+      computedTags.push(ca.furnishing);
+    }
+    if (ca.positioning) {
+      computedTags.push(ca.positioning);
+    }
+  }
+  return [...new Set(computedTags)];
+}
+
 // @route   GET /api/properties
 // @desc    Get all properties for the authenticated owner
 // @access  Private
@@ -345,8 +373,9 @@ router.post('/', authMiddleware, async (req, res) => {
     }
     console.log(`[IMAGE PIPELINE] ✅ Complete: ${linkedCount}/${tempUploads.length} images linked to property ${newProperty.id}`);
 
-    if (tags && tags.length > 0) {
-      for (const tag of tags) {
+    const finalTags = generateSmartTags(tags, details);
+    if (finalTags.length > 0) {
+      for (const tag of finalTags) {
         await db.insert('property_tags', { property_id: newProperty.id, tag_name: tag });
       }
     }
@@ -488,10 +517,11 @@ router.put('/:id', authMiddleware, async (req, res) => {
       }
     }
 
-    if (tags) {
+    if (tags || details) {
+      const finalTags = generateSmartTags(tags, details);
       const currentTags = await db.select('property_tags', { property_id: property.id });
       for (const t of currentTags) await db.delete('property_tags', t.id);
-      for (const tag of tags) await db.insert('property_tags', { property_id: property.id, tag_name: tag });
+      for (const tag of finalTags) await db.insert('property_tags', { property_id: property.id, tag_name: tag });
     }
     
     if (amenities) {

@@ -152,7 +152,10 @@ router.get('/my-properties', authMiddleware, async (req, res) => {
         id,
         status,
         joined_at,
-        properties (*)
+        properties (
+          *,
+          users!properties_owner_id_fkey (full_name, phone, email)
+        )
       `)
       .eq('tenant_id', req.user.id)
       .eq('status', 'active');
@@ -165,12 +168,20 @@ router.get('/my-properties', authMiddleware, async (req, res) => {
       let p = t.properties;
       p.tenancy_id = t.id;
       p.joined_at = t.joined_at;
+      if (p.users) {
+        p.owner_name = p.users.full_name;
+        p.owner_phone = p.users.phone;
+        p.owner_email = p.users.email;
+        delete p.users;
+      }
       return p;
     });
 
-    // We also need to fetch images for these properties
+    // We also need to fetch images, contacts, and payment info for these properties
     for (let prop of properties) {
       prop.images = await db.select('property_images', { property_id: prop.id }, { column: 'display_order', ascending: true });
+      prop.contacts = await db.select('property_contacts', { property_id: prop.id });
+      prop.payment_info = await db.selectFirst('owner_payment_info', { user_id: prop.owner_id });
     }
 
     res.json(properties);

@@ -116,6 +116,18 @@ export const api = {
   },
 
   // Properties APIs
+  async getPublicProperties(filters: any = {}) {
+    const queryParams = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) {
+      if (value !== undefined && value !== null && value !== '') {
+        queryParams.append(key, value.toString());
+      }
+    }
+    const queryString = queryParams.toString();
+    const endpoint = queryString ? `/public/properties?${queryString}` : '/public/properties';
+    return apiFetch(endpoint);
+  },
+
   async getProperties() {
     return apiFetch('/properties');
   },

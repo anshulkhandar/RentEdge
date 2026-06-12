@@ -25,8 +25,10 @@ const leaseRoutes = require('./routes/leases');
 const paymentRoutes = require('./routes/payments');
 const userRoutes = require('./routes/users');
 const imagekitRoutes = require('./routes/imagekit');
+const publicRoutes = require('./routes/public');
 
 // Register routes
+app.use('/api/public', publicRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/properties', propertyRoutes);
 app.use('/api/tenants', tenantRoutes);

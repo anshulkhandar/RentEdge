@@ -86,8 +86,7 @@ const INITIAL_FORM_DATA = {
   occupancy_type: 'Any',
   details: {
     bhk: '1', apartment_floor_on: '', built_up_area: '', plot_area: '',
-    parking_spaces: '0', sharing_types: [] as string[], available_beds: '',
-    food_included: false, laundry_included: false,
+    parking_spaces: '0', sharing_types: [] as string[],
     office: false, shop: false, warehouse: false, commercial_area: ''
   },
   images: [] as any[],
@@ -99,9 +98,7 @@ const INITIAL_FORM_DATA = {
     nearMetro: false, nearBusStop: false, nearRailwayStation: false, nearAirport: false,
     nearITPark: false, nearCollege: false, nearSchool: false, nearHospital: false,
     suitableFor: [] as string[], furnishing: 'Unfurnished', positioning: 'Budget Friendly',
-    cctv: false, securityGuard: false, gatedCommunity: false, biometricEntry: false,
-    fireSafety: false, foodIncluded: false, laundryIncluded: false, housekeepingIncluded: false,
-    wifiIncluded: false
+    gatedCommunity: false, biometricEntry: false, fireSafety: false
   }
 };
 
@@ -228,7 +225,6 @@ export default function PropertyManagement() {
       }
       if (formData.property_type === 'PG') {
         if (!formData.details.sharing_types || formData.details.sharing_types.length === 0) return 'At least one sharing type is required for PG';
-        if (!formData.details.available_beds) return 'Available Beds is required for PG';
       }
     }
     if (step === 3) {
@@ -291,19 +287,11 @@ export default function PropertyManagement() {
     if (ans.positioning) newTags.push(ans.positioning);
 
     // Security
-    if (ans.cctv) newTags.push('CCTV Protected');
-    if (ans.securityGuard) newTags.push('Security Guard');
     if (ans.gatedCommunity) newTags.push('Gated Community');
     if (ans.biometricEntry) newTags.push('Biometric Entry');
     if (ans.fireSafety) newTags.push('Fire Safety');
 
-    // PG specific
-    if (formData.property_type === 'PG') {
-      if (ans.foodIncluded) newTags.push('Food Included');
-      if (ans.laundryIncluded) newTags.push('Laundry Included');
-      if (ans.housekeepingIncluded) newTags.push('Housekeeping Included');
-      if (ans.wifiIncluded) newTags.push('WiFi Included');
-    }
+    // PG specific (deprecated)
 
     const uniqueTags = Array.from(new Set(newTags));
     
@@ -415,10 +403,6 @@ export default function PropertyManagement() {
         plot_area: property.details?.plot_area?.toString() || '',
         parking_spaces: property.details?.parking_spaces?.toString() || '0',
         sharing_types: property.details?.sharing_types || [],
-        
-        available_beds: property.details?.available_beds?.toString() || '',
-        food_included: property.details?.food_included || false,
-        laundry_included: property.details?.laundry_included || false,
         office: property.details?.office || false,
         shop: property.details?.shop || false,
         warehouse: property.details?.warehouse || false,
@@ -444,16 +428,9 @@ export default function PropertyManagement() {
         furnishing: property.details?.classificationAnswers?.furnishing || property.furnishing_status || 'Unfurnished',
         positioning: property.details?.classificationAnswers?.positioning || property.details?.classificationAnswers?.condition || 'Budget Friendly',
         
-        cctv: property.details?.classificationAnswers?.cctv || false,
-        securityGuard: property.details?.classificationAnswers?.securityGuard || false,
         gatedCommunity: property.details?.classificationAnswers?.gatedCommunity || false,
         biometricEntry: property.details?.classificationAnswers?.biometricEntry || false,
-        fireSafety: property.details?.classificationAnswers?.fireSafety || false,
-        
-        foodIncluded: property.details?.classificationAnswers?.foodIncluded || false,
-        laundryIncluded: property.details?.classificationAnswers?.laundryIncluded || false,
-        housekeepingIncluded: property.details?.classificationAnswers?.housekeepingIncluded || false,
-        wifiIncluded: property.details?.classificationAnswers?.wifiIncluded || false
+        fireSafety: property.details?.classificationAnswers?.fireSafety || false
       }
     });
     setEditingPropertyId(property.id);
@@ -716,7 +693,7 @@ export default function PropertyManagement() {
                   <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-md">
                     <MapPin className="w-3.5 h-3.5 text-slate-400" />
                     {p.property_type === 'Commercial' ? `${p.details?.commercial_area || 0} sqft` : 
-                     p.property_type === 'PG' ? `${p.details?.available_beds || 0} Beds` : 
+                     p.property_type === 'PG' ? `PG` : 
                      `${p.details?.built_up_area || 0} sqft`}
                   </div>
                   <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-md ml-auto">
@@ -805,14 +782,29 @@ export default function PropertyManagement() {
                       </div>
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Property Type</label>
-                        <select value={formData.property_type} onChange={e => setFormData({...formData, property_type: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-brand-purple/20 focus:border-brand-purple outline-none">
+                        <select value={formData.property_type} onChange={e => {
+                          const newType = e.target.value;
+                          let newOccupancy = formData.occupancy_type;
+                          if (['Apartment', 'House', 'Villa'].includes(newType) && !['Any', 'Family Only', 'Bachelors Only'].includes(newOccupancy)) newOccupancy = 'Any';
+                          else if (newType === 'PG' && !['Male Only', 'Female Only', 'Co-ed'].includes(newOccupancy)) newOccupancy = 'Co-ed';
+                          else if (newType === 'Commercial') newOccupancy = 'Any';
+                          setFormData({...formData, property_type: newType, occupancy_type: newOccupancy});
+                        }} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-brand-purple/20 focus:border-brand-purple outline-none">
                           <option>Apartment</option><option>House</option><option>Villa</option><option>PG</option><option>Commercial</option>
                         </select>
                       </div>
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Occupancy Type</label>
                         <select value={formData.occupancy_type} onChange={e => setFormData({...formData, occupancy_type: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-brand-purple/20 focus:border-brand-purple outline-none">
-                          <option>Any</option><option>Male Only</option><option>Female Only</option><option>Co-ed</option><option>Family Only</option><option>Bachelors Only</option>
+                          {['Apartment', 'House', 'Villa'].includes(formData.property_type) && (
+                            <><option>Any</option><option>Family Only</option><option>Bachelors Only</option></>
+                          )}
+                          {formData.property_type === 'PG' && (
+                            <><option>Male Only</option><option>Female Only</option><option>Co-ed</option></>
+                          )}
+                          {formData.property_type === 'Commercial' && (
+                            <option>Any</option>
+                          )}
                         </select>
                       </div>
                       <div className="col-span-full">
@@ -913,11 +905,6 @@ export default function PropertyManagement() {
                         )}
                         {formData.property_type === 'PG' && (
                           <>
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Available Beds</label>
-                              <input type="number" value={formData.details.available_beds} onChange={e => setFormData({...formData, details: {...formData.details, available_beds: e.target.value}})} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
-                            </div>
-                            
                             <div className="col-span-full mt-2">
                               <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Sharing Configuration</label>
                               <div className="flex flex-wrap gap-3">
@@ -944,16 +931,6 @@ export default function PropertyManagement() {
                               </div>
                             </div>
 
-                            
-                            
-                            <div className="flex gap-4 col-span-full mt-2">
-                              <label className="flex items-center gap-2 text-sm text-slate-700 bg-white px-4 py-2 border border-slate-200 rounded-lg cursor-pointer">
-                                <input type="checkbox" checked={formData.details.food_included} onChange={e => setFormData({...formData, details: {...formData.details, food_included: e.target.checked}})} className="w-4 h-4 text-brand-purple rounded focus:ring-brand-purple" /> Food Included
-                              </label>
-                              <label className="flex items-center gap-2 text-sm text-slate-700 bg-white px-4 py-2 border border-slate-200 rounded-lg cursor-pointer">
-                                <input type="checkbox" checked={formData.details.laundry_included} onChange={e => setFormData({...formData, details: {...formData.details, laundry_included: e.target.checked}})} className="w-4 h-4 text-brand-purple rounded focus:ring-brand-purple" /> Laundry Included
-                              </label>
-                            </div>
                           </>
                         )}
                         {formData.property_type === 'Commercial' && (
@@ -1226,8 +1203,6 @@ export default function PropertyManagement() {
                         <h5 className="text-[10px] uppercase font-bold text-slate-400 mb-3">Safety & Security</h5>
                         <div className="grid grid-cols-2 gap-3">
                           {[
-                            { key: 'cctv', label: 'CCTV Available' },
-                            { key: 'securityGuard', label: 'Security Guard' },
                             { key: 'gatedCommunity', label: 'Gated Community' },
                             { key: 'biometricEntry', label: 'Biometric Entry' },
                             { key: 'fireSafety', label: 'Fire Safety Equipment' }
@@ -1251,36 +1226,7 @@ export default function PropertyManagement() {
                         </div>
                       </div>
 
-                      {/* PG Specific Classification */}
-                      {formData.property_type === 'PG' && (
-                        <div className="bg-slate-50 p-4 border border-slate-100 rounded-xl">
-                          <h5 className="text-[10px] uppercase font-bold text-slate-400 mb-3">PG Specific Classification</h5>
-                          <div className="grid grid-cols-2 gap-3">
-                            {[
-                              { key: 'foodIncluded', label: 'Food Included' },
-                              { key: 'laundryIncluded', label: 'Laundry Included' },
-                              { key: 'housekeepingIncluded', label: 'Housekeeping Included' },
-                              { key: 'wifiIncluded', label: 'WiFi Included' }
-                            ].map(q => (
-                              <label key={q.key} className="flex items-center gap-2 text-sm text-slate-700 bg-white px-3 py-2 border border-slate-200 rounded-lg cursor-pointer">
-                                <input 
-                                  type="checkbox" 
-                                  checked={formData.classificationAnswers[q.key as keyof typeof formData.classificationAnswers] as boolean}
-                                  onChange={e => setFormData({
-                                    ...formData, 
-                                    classificationAnswers: {
-                                      ...formData.classificationAnswers,
-                                      [q.key]: e.target.checked
-                                    }
-                                  })}
-                                  className="w-4 h-4 text-brand-purple rounded focus:ring-brand-purple"
-                                />
-                                {q.label}
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                      {/* PG Specific Classification (Removed due to duplication) */}
 
                     </div>
                   </div>

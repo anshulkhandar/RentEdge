@@ -13,7 +13,7 @@ import { api } from './api';
 // ─── Filter Types ──────────────────────────────────────────────────────────────
 type FurnishingFilter = 'Any' | 'Fully' | 'Semi' | 'None';
 type BHKFilter = 'Any' | 1 | 2 | '3+';
-type TypeFilter = 'All' | 'Apartments' | 'Houses' | 'Villas' | 'PG' | 'Studios';
+type TypeFilter = 'All' | 'Apartments' | 'Houses' | 'Villas' | 'PG' | 'Studios' | 'Commercial';
 
 // Map our type strings to filter
 const typeMap: Record<TypeFilter, string[]> = {
@@ -23,6 +23,7 @@ const typeMap: Record<TypeFilter, string[]> = {
   'Villas': ['Luxury Villa', 'Villa'],
   'PG': ['PG / Hostel', 'PG', 'Hostel'],
   'Studios': ['Studio Suite', 'Studio'],
+  'Commercial': ['Commercial'],
 };
 
 // Helper to check if a property is PG/Hostel type
@@ -47,7 +48,7 @@ function PropertyCard({ property, onView, index }: { property: Property; onView:
       <div className="relative aspect-video sm:h-52 overflow-hidden bg-slate-100 dark:bg-slate-950 shrink-0">
         {!imgError ? (
           <img
-            src={property.image}
+            src={(property.images && property.images.length > 0) ? property.images[0] : property.image}
             alt={property.title}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
             onError={() => setImgError(true)}
@@ -59,13 +60,19 @@ function PropertyCard({ property, onView, index }: { property: Property; onView:
         )}
 
         {/* Tag chip */}
-        <div className="absolute top-3 left-3">
+        <div className="absolute top-3 left-3 flex flex-col gap-2">
+          {property.is_city_pioneer && (
+            <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide px-3 py-1 rounded-full bg-gradient-to-r from-amber-200 to-yellow-400 text-yellow-900 shadow-md border border-yellow-300">
+              <Star className="w-3.5 h-3.5 fill-yellow-600 text-yellow-600" />
+              City Pioneer
+            </span>
+          )}
           <span 
             className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide px-2.5 py-1 rounded-full bg-white/95 backdrop-blur-sm border border-white/60 shadow-sm"
-            style={{ color: '#000000' }}
+            style={{ color: '#000000', width: 'fit-content' }}
           >
             <BadgeCheck className="w-3 h-3 text-emerald-500 shrink-0" />
-            {property.tag}
+            {property.tag || 'Verified'}
           </span>
         </div>
 
@@ -86,22 +93,41 @@ function PropertyCard({ property, onView, index }: { property: Property; onView:
           </p>
         </div>
 
-        {/* Stats row */}
+        {/* Dynamic Stats row */}
         <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 font-semibold mt-1">
-          <span className="flex items-center gap-1"><Bed className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />{isPGType(property.type) ? `${property.bhk} Sharing` : `${property.bhk} BHK`}</span>
-          <span className="w-px h-3 bg-slate-200 dark:bg-slate-800" />
-          <span className="flex items-center gap-1"><Bath className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />{property.baths} Bath</span>
-          <span className="w-px h-3 bg-slate-200 dark:bg-slate-800" />
-          <span className="flex items-center gap-1"><Maximize2 className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />{property.sqft} sqft</span>
+          {property.property_type === 'PG' || property.type === 'PG' ? (
+            <>
+              <span className="flex items-center gap-1"><User className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />{property.occupancy_type || 'Any'}</span>
+              <span className="w-px h-3 bg-slate-200 dark:bg-slate-800" />
+              <span className="flex items-center gap-1"><Bed className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />{property.details?.sharing_types ? property.details.sharing_types.join('/') + ' Sharing' : 'PG'}</span>
+            </>
+          ) : property.property_type === 'Commercial' || property.type === 'Commercial' ? (
+            <>
+              <span className="flex items-center gap-1"><Home className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />{property.details?.office ? 'Office' : property.details?.shop ? 'Shop' : 'Space'}</span>
+              <span className="w-px h-3 bg-slate-200 dark:bg-slate-800" />
+              <span className="flex items-center gap-1"><Maximize2 className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />{property.sqft || 0} sqft</span>
+            </>
+          ) : (
+            <>
+              <span className="flex items-center gap-1"><Bed className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />{property.bhk} BHK</span>
+              <span className="w-px h-3 bg-slate-200 dark:bg-slate-800" />
+              <span className="flex items-center gap-1"><Bath className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />{property.baths} Bath</span>
+              <span className="w-px h-3 bg-slate-200 dark:bg-slate-800" />
+              <span className="flex items-center gap-1"><Maximize2 className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />{property.sqft} sqft</span>
+            </>
+          )}
         </div>
 
-        {/* Amenities (Desktop only) */}
+        {/* Smart Tags & Amenities (Desktop only) */}
         <div className="hidden sm:flex flex-wrap gap-1.5">
-          {property.amenities.slice(0, 3).map((a) => (
+          {property.tags && property.tags.slice(0, 2).map((t) => (
+            <span key={t} className="text-[10px] font-bold px-2 py-0.5 bg-brand-purple/10 text-brand-purple rounded-md border border-brand-purple/20">{t}</span>
+          ))}
+          {property.amenities.slice(0, property.tags && property.tags.length > 0 ? 1 : 3).map((a) => (
             <span key={a} className="text-[10px] font-semibold px-2 py-0.5 bg-slate-50 dark:bg-slate-850 text-slate-500 dark:text-slate-400 rounded-md border border-slate-100 dark:border-white/5">{a}</span>
           ))}
-          {property.amenities.length > 3 && (
-            <span className="text-[10px] font-semibold px-2 py-0.5 bg-slate-50 dark:bg-slate-850 text-slate-400 dark:text-slate-550 rounded-md border border-slate-100 dark:border-white/5">+{property.amenities.length - 3} more</span>
+          {(property.amenities.length + (property.tags?.length || 0)) > 3 && (
+            <span className="text-[10px] font-semibold px-2 py-0.5 bg-slate-50 dark:bg-slate-850 text-slate-400 dark:text-slate-550 rounded-md border border-slate-100 dark:border-white/5">+{Math.max(0, property.amenities.length + (property.tags?.length || 0) - 3)} more</span>
           )}
         </div>
 
@@ -180,35 +206,45 @@ export default function Listings({ onEnquire }: ListingsProps) {
   const [propertiesList, setPropertiesList] = useState<Property[]>([]);
   const [isLoadingProperties, setIsLoadingProperties] = useState(true);
 
+  const [selectedLocation, setSelectedLocation] = useState('All');
+  const [customArea, setCustomArea] = useState('');
+  const [occupancyType, setOccupancyType] = useState<string>('Any');
+  const [furnishing, setFurnishing] = useState<FurnishingFilter>('Any');
+  const [bhk, setBhk] = useState<BHKFilter>('Any');
+  const [minRent, setMinRent] = useState('');
+  const [maxRent, setMaxRent] = useState('');
+  const [propertyType, setPropertyType] = useState<TypeFilter>('All');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const typeButtons: TypeFilter[] = ['All', 'Apartments', 'Houses', 'Villas', 'PG', 'Studios', 'Commercial'];
+
+  const [activeDropdown, setActiveDropdown] = useState<'location' | 'type' | 'budget' | null>(null);
+  const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+
   useEffect(() => {
     async function loadProperties() {
+      setIsLoadingProperties(true);
       try {
-        const data = await api.getProperties();
-        setPropertiesList(data);
+        const typesStr = propertyType === 'All' ? undefined : typeMap[propertyType].join(',');
+        const data = await api.getPublicProperties({
+          q: customArea || undefined,
+          city: selectedLocation === 'All' ? undefined : selectedLocation,
+          property_type: typesStr,
+          occupancy_type: occupancyType === 'Any' ? undefined : occupancyType,
+          bhk: bhk === 'Any' ? undefined : bhk,
+          min_rent: minRent || undefined,
+          max_rent: maxRent || undefined
+        });
+        setPropertiesList(data.properties || []);
       } catch (err) {
         console.error('Failed to fetch properties:', err);
-        let fallback: Property[] = [];
-        if (typeof window !== 'undefined') {
-          const savedAll = localStorage.getItem('rentedge_all_properties');
-          if (savedAll) {
-            try {
-              const parsed = JSON.parse(savedAll);
-              if (parsed && parsed.length > 0) fallback = parsed;
-            } catch (e) {}
-          }
-        }
-        setPropertiesList(fallback);
+        setPropertiesList([]);
       } finally {
         setIsLoadingProperties(false);
       }
     }
-    loadProperties();
-  }, []);
-
-  const [selectedLocation, setSelectedLocation] = useState('All');
-  const [customArea, setCustomArea] = useState('');
-  const [activeDropdown, setActiveDropdown] = useState<'location' | 'type' | 'budget' | null>(null);
-  const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+    const timeoutId = setTimeout(loadProperties, 300); // debounce
+    return () => clearTimeout(timeoutId);
+  }, [selectedLocation, customArea, propertyType, bhk, minRent, maxRent, furnishing, occupancyType]);
 
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
 
@@ -262,14 +298,7 @@ export default function Listings({ onEnquire }: ListingsProps) {
       triggerScramble(selectedProperty.ownerPhoneFull);
     }, 1100);
   };
-  const [furnishing, setFurnishing] = useState<FurnishingFilter>('Any');
-  const [bhk, setBhk] = useState<BHKFilter>('Any');
-  const [minRent, setMinRent] = useState('');
-  const [maxRent, setMaxRent] = useState('');
-  const [propertyType, setPropertyType] = useState<TypeFilter>('All');
-  const [filtersOpen, setFiltersOpen] = useState(false);
 
-  const typeButtons: TypeFilter[] = ['All', 'Apartments', 'Houses', 'Villas', 'PG', 'Studios'];
 
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const terminalRef = React.useRef<HTMLDivElement>(null);
@@ -325,49 +354,11 @@ export default function Listings({ onEnquire }: ListingsProps) {
 
   const hasActiveFilters = activeFiltersCount > 0;
 
-  const filtered = useMemo(() => {
-    let allProps = propertiesList;
-
-    return allProps.filter((p) => {
-      // Selected City
-      if (selectedLocation !== 'All') {
-        const city = selectedLocation.toLowerCase();
-        if (p.city.toLowerCase() !== city) return false;
-      }
-
-      // Custom Area
-      if (customArea) {
-        const area = customArea.toLowerCase();
-        if (
-          !p.area.toLowerCase().includes(area) &&
-          !p.title.toLowerCase().includes(area) &&
-          !p.city.toLowerCase().includes(area)
-        ) return false;
-      }
-
-      // Property type
-      if (propertyType !== 'All') {
-        const allowed = typeMap[propertyType];
-        if (allowed.length > 0 && !allowed.some(t => p.type.toLowerCase().includes(t.toLowerCase()))) return false;
-      }
-
-      // BHK
-      if (bhk !== 'Any') {
-        if (bhk === '3+') { if (p.bhk < 3) return false; }
-        else { if (p.bhk !== bhk) return false; }
-      }
-
-      // Price
-      const min = parseInt(minRent) || 0;
-      const max = parseInt(maxRent) || Infinity;
-      if (p.price < min || p.price > max) return false;
-
-      return true;
-    });
-  }, [selectedLocation, customArea, propertyType, bhk, minRent, maxRent, furnishing]);
+  const filtered = propertiesList;
 
   const clearFilters = () => {
     setFurnishing('Any');
+    setOccupancyType('Any');
     setBhk('Any');
     setMinRent('');
     setMaxRent('');
@@ -785,17 +776,45 @@ export default function Listings({ onEnquire }: ListingsProps) {
               >
                 <div className="pt-3 border-t border-slate-100/80">
                   <div className="flex flex-wrap gap-3 items-center">
-                    <FilterDropdown<FurnishingFilter>
-                      label="Furnishing"
-                      value={furnishing}
-                      onChange={setFurnishing}
-                      options={[
-                        { value: 'Any', label: 'Any Furnishing' },
-                        { value: 'Fully', label: 'Fully Furnished' },
-                        { value: 'Semi', label: 'Semi Furnished' },
-                        { value: 'None', label: 'Unfurnished' },
-                      ]}
-                    />
+                    {propertyType === 'PG' ? (
+                      <FilterDropdown<string>
+                        label="Occupancy"
+                        value={occupancyType}
+                        onChange={setOccupancyType}
+                        options={[
+                          { value: 'Any', label: 'Any Occupancy' },
+                          { value: 'Male Only', label: 'Male Only' },
+                          { value: 'Female Only', label: 'Female Only' },
+                          { value: 'Co-ed', label: 'Co-ed' },
+                        ]}
+                      />
+                    ) : propertyType === 'Commercial' ? (
+                      <></> // No occupancy or furnishing for commercial
+                    ) : (
+                      <>
+                        <FilterDropdown<string>
+                          label="Occupancy"
+                          value={occupancyType}
+                          onChange={setOccupancyType}
+                          options={[
+                            { value: 'Any', label: 'Any Occupancy' },
+                            { value: 'Family Only', label: 'Family Only' },
+                            { value: 'Bachelors Only', label: 'Bachelors Only' },
+                          ]}
+                        />
+                        <FilterDropdown<FurnishingFilter>
+                          label="Furnishing"
+                          value={furnishing}
+                          onChange={setFurnishing}
+                          options={[
+                            { value: 'Any', label: 'Any Furnishing' },
+                            { value: 'Fully', label: 'Fully Furnished' },
+                            { value: 'Semi', label: 'Semi Furnished' },
+                            { value: 'None', label: 'Unfurnished' },
+                          ]}
+                        />
+                      </>
+                    )}
                     <FilterDropdown<BHKFilter>
                       label={propertyType === 'PG' ? 'Sharing' : 'BHK'}
                       value={bhk}
@@ -1113,7 +1132,7 @@ export default function Listings({ onEnquire }: ListingsProps) {
             >
               {/* Hero Image */}
               <div className="relative h-64 sm:h-80 overflow-hidden bg-slate-100 dark:bg-slate-950">
-                <img src={selectedProperty.images[0] || selectedProperty.image} alt={selectedProperty.title} className="w-full h-full object-cover" />
+                <img src={(selectedProperty.images && selectedProperty.images.length > 0) ? selectedProperty.images[0] : selectedProperty.image} alt={selectedProperty.title} className="w-full h-full object-cover" />
                 <button 
                   onClick={() => setSelectedProperty(null)} 
                   className="absolute top-4 left-4 p-2 bg-white/95 backdrop-blur-sm rounded-xl border border-white/60 shadow-sm hover:bg-white transition cursor-pointer"
@@ -1134,7 +1153,7 @@ export default function Listings({ onEnquire }: ListingsProps) {
               </div>
 
               {/* Thumbnail strip */}
-              {selectedProperty.images.length > 1 && (
+              {selectedProperty.images && selectedProperty.images.length > 1 && (
                 <div className="flex gap-2 p-4 overflow-x-auto border-b border-slate-100 dark:border-white/5">
                   {selectedProperty.images.slice(1, 5).map((img, i) => (
                     <img key={i} src={img} alt="" className="w-20 h-14 rounded-lg object-cover border-2 border-transparent hover:border-indigo-400 transition-all cursor-pointer shrink-0" />
@@ -1211,7 +1230,7 @@ export default function Listings({ onEnquire }: ListingsProps) {
                 {/* Deposit info */}
                 <div className="flex items-center justify-between px-4 py-3 bg-indigo-50 dark:bg-brand-purple/10 rounded-xl border border-indigo-100 dark:border-brand-purple/20">
                   <span className="text-xs font-bold text-indigo-700 dark:text-brand-purple">Security Deposit</span>
-                  <span className="text-sm font-black text-indigo-900 dark:text-white">₹{selectedProperty.deposit.toLocaleString('en-IN')} ({selectedProperty.depositMonths} months)</span>
+                  <span className="text-sm font-black text-indigo-900 dark:text-white">₹{(selectedProperty.deposit || 0).toLocaleString('en-IN')} ({selectedProperty.depositMonths || 0} months)</span>
                 </div>
 
                 {/* Info note */}

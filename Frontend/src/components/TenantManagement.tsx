@@ -70,7 +70,6 @@ export default function TenantManagement() {
   };
 
   const [showInviteModal, setShowInviteModal] = useState(false);
-  const [showLeaseModal, setShowLeaseModal] = useState<Tenant | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   
   // Invite form state
@@ -275,13 +274,6 @@ export default function TenantManagement() {
                       <Send className="w-3.5 h-3.5 text-indigo-500" />
                       Remind Rent
                     </button>
-                    <button
-                      onClick={() => setShowLeaseModal(tenant)}
-                      className="px-3.5 py-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-black rounded-xl transition-all cursor-pointer inline-flex items-center gap-1 shadow-sm"
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                      View Lease
-                    </button>
                   </>
                 ) : (
                   <div className="flex items-center gap-2">
@@ -410,131 +402,6 @@ export default function TenantManagement() {
                   </button>
                 </div>
               </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Lease Agreement Document Viewer Modal */}
-      <AnimatePresence>
-        {showLeaseModal && (
-          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-            <motion.div
-              initial={{ scale: 0.95, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 20 }}
-              className="bg-slate-50 border border-slate-200 rounded-3xl max-w-2xl w-full relative overflow-hidden shadow-2xl"
-            >
-              {/* government theme certificate header */}
-              <div className="bg-[#0f172a] text-white p-5 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-indigo-500/10 border border-indigo-500/30 rounded-xl text-indigo-400">
-                    <FileText className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-black uppercase tracking-wider">
-                      RentEdge Digital Lease Node
-                    </h4>
-                    <p className="text-[9.5px] text-slate-400 font-semibold mt-0.5">
-                      Hash ID: 0x93bb28a77b8f9e... (Verified Stamp Node)
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowLeaseModal(null)}
-                  className="p-1 hover:bg-white/10 text-slate-350 hover:text-white rounded-lg cursor-pointer transition-colors"
-                >
-                  <X className="w-4.5 h-4.5" />
-                </button>
-              </div>
-
-              {/* Digital Stamp Paper Page Structure */}
-              <div className="p-6 sm:p-8 max-h-[70vh] overflow-y-auto bg-white space-y-8 text-slate-800 text-[11px] leading-relaxed">
-                
-                {/* Government Stamp Banner */}
-                <div className="border-[3px] border-double border-indigo-900/50 p-4 rounded-xl text-center space-y-1.5 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-900/5 rotate-45 translate-x-10 -translate-y-10 rounded-full flex items-center justify-center border-l border-indigo-900/10" />
-                  <span className="block text-[11px] font-black text-indigo-900 uppercase tracking-widest">
-                    Government of National Capital Territory of Delhi
-                  </span>
-                  <span className="block text-[13px] font-black text-slate-900 font-serif">
-                    e-Stamp Certificate
-                  </span>
-                  <div className="flex items-center justify-between text-[8px] font-extrabold text-indigo-900 pt-3 border-t border-indigo-900/10 mt-3">
-                    <span>Certificate No: IN-DL2837482937A</span>
-                    <span>Stamp Duty Paid: ₹500</span>
-                  </div>
-                </div>
-
-                {/* Lease Details Table */}
-                <div className="space-y-4">
-                  <h5 className="font-black text-slate-900 text-xs border-b border-slate-100 pb-1.5">
-                    PARTIES &amp; TENANCY SUMMARY
-                  </h5>
-                  
-                  <div className="grid grid-cols-2 gap-4 text-xs font-semibold text-slate-700">
-                    <div>
-                      <span className="block text-[9px] uppercase font-bold text-slate-400">First Party (Lessor/Owner)</span>
-                      <span className="text-slate-900 font-extrabold">Rajvardhan Pawar</span>
-                    </div>
-                    <div>
-                      <span className="block text-[9px] uppercase font-bold text-slate-400">Second Party (Lessee/Tenant)</span>
-                      <span className="text-slate-900 font-extrabold">{showLeaseModal.name}</span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 text-xs font-semibold text-slate-700 pt-2 border-t border-slate-50">
-                    <div>
-                      <span className="block text-[9px] uppercase font-bold text-slate-400">Premises Address</span>
-                      <span className="text-slate-900 font-bold block">{showLeaseModal.property}</span>
-                    </div>
-                    <div>
-                      <span className="block text-[9px] uppercase font-bold text-slate-400">Monthly Lease Rent</span>
-                      <span className="text-slate-950 font-black">₹{showLeaseModal.rent.toLocaleString('en-IN')}/month</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Terms and conditions snippet */}
-                <div className="space-y-3">
-                  <h5 className="font-black text-slate-900 text-xs border-b border-slate-100 pb-1.5">
-                    STANDARD CONVENANTS &amp; MANDATES
-                  </h5>
-                  <ol className="list-decimal list-inside space-y-2 text-slate-550 leading-relaxed font-semibold">
-                    <li>The Lease shall run for a mandatory tenure of 12 months commencing from {showLeaseModal.leaseStart} to {showLeaseModal.leaseEnd}.</li>
-                    <li>The Lessee agrees to remit the Monthly Rent directly into the registered landlord UPI escrow account by the 5th day of every calendar month.</li>
-                    <li>A security deposit sum of ₹{(showLeaseModal.rent * 2).toLocaleString('en-IN')} has been verified and stored in the secure RentEdge Escrow Registry.</li>
-                  </ol>
-                </div>
-
-                {/* Digital Verification Badges Footer */}
-                <div className="pt-6 border-t border-slate-150 flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50 -mx-6 -mb-6 p-6">
-                  <div className="flex items-center gap-3">
-                    <QrCode className="w-14 h-14 text-[#0f172a] stroke-[1.5px]" />
-                    <div className="space-y-1 text-left">
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-emerald-50 border border-emerald-100 rounded text-[8.5px] font-black text-emerald-600 uppercase">
-                        ✓ Digitally Verified
-                      </span>
-                      <p className="text-[9px] text-slate-500 font-semibold leading-snug">
-                        UIDAI e-Sign &amp; Central Registry e-Stamp validated.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <button
-                      onClick={() => {
-                        setShowLeaseModal(null);
-                        triggerNotification('Downloading verified PDF stamp file...');
-                      }}
-                      className="px-4 py-2 bg-[#0f172a] hover:bg-slate-800 text-white text-xs font-black rounded-xl cursor-pointer"
-                    >
-                      Download Document PDF
-                    </button>
-                  </div>
-                </div>
-
-              </div>
             </motion.div>
           </div>
         )}

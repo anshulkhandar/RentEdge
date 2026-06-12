@@ -19,6 +19,7 @@ export interface Property {
   image: string; // For compatibility
   location: string; // For compatibility
   tag: string; // For compatibility
+  tags?: string[];
   amenities: string[];
   description: string;
   ownerName: string;
@@ -27,8 +28,15 @@ export interface Property {
   property_code?: string;
   property_type?: string;
   property_name?: string;
+  occupancy_type?: string;
   status?: string;
   address?: string;
+  ownerEmail?: string;
+  ownerPhone?: string;
+  contacts?: { contact_name: string; contact_role: string; contact_phone: string; contact_email?: string }[];
+  payment_info?: { account_holder_name?: string; bank_account_number?: string; ifsc_code?: string; upi_id?: string };
+  is_city_pioneer?: boolean;
+  details?: any;
 }
 
 export const mockProperties: Property[] = [];
