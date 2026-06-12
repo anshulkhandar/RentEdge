@@ -104,9 +104,35 @@ export const api = {
     return apiFetch('/auth/me');
   },
 
+  async getPaymentInfo() {
+    return apiFetch('/users/payment-info');
+  },
+
+  async savePaymentInfo(paymentData: any) {
+    return apiFetch('/users/payment-info', {
+      method: 'POST',
+      body: JSON.stringify(paymentData),
+    });
+  },
+
   // Properties APIs
   async getProperties() {
     return apiFetch('/properties');
+  },
+
+  async getJoinRequests() {
+    return apiFetch('/properties/join-requests');
+  },
+
+  async updateJoinRequestStatus(requestId: string, status: 'approved' | 'rejected') {
+    return apiFetch(`/properties/join-requests/${requestId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status })
+    });
+  },
+
+  async getPropertyTenants() {
+    return apiFetch('/properties/tenants');
   },
 
   async getProperty(id: string) {
@@ -208,6 +234,17 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(profileData),
     });
+  },
+
+  async joinProperty(propertyCode: string) {
+    return apiFetch('/tenants/join-property', {
+      method: 'POST',
+      body: JSON.stringify({ propertyCode }),
+    });
+  },
+
+  async getMyProperties() {
+    return apiFetch('/tenants/my-properties');
   },
 
   // Leases/Access Codes APIs

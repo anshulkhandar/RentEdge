@@ -143,7 +143,7 @@ router.post('/verify-code', authMiddleware, async (req, res) => {
 router.get('/my-leases', authMiddleware, async (req, res) => {
   try {
     let leases = [];
-    if (req.user.role === 'owner' || req.user.role === 'hostel') {
+    if (req.user.isOwner) {
       leases = await db.select('leases', { ownerEmail: req.user.email });
     } else {
       leases = await db.select('leases', { tenantId: req.user.id });
@@ -166,7 +166,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     }
 
     // Allow owner or tenant of this lease to delete
-    if (lease.ownerEmail !== req.user.email && lease.tenantId !== req.user.id && req.user.role !== 'admin') {
+    if (lease.ownerEmail !== req.user.email && lease.tenantId !== req.user.id) {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 

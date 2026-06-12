@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { db } = require('../config/supabase');
+const { db, supabase } = require('../config/supabase');
 const authMiddleware = require('../middleware/auth');
 
 // @route   GET /api/properties
@@ -26,6 +26,121 @@ router.get('/', authMiddleware, async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+// @route   GET /api/properties/join-requests
+// @desc    Get all join requests for properties owned by the authenticated owner
+// @access  Private
+router.get('/join-requests', authMiddleware, async (req, res) => {
+  try {
+    const { data: requests, error } = await supabase
+      .from('property_join_requests')
+      .select(`
+        id,
+        status,
+        created_at,
+        users!property_join_requests_tenant_id_fkey (
+          id,
+          full_name,
+          email,
+          phone
+        ),
+        properties (
+          id,
+          property_name,
+          property_code
+        )
+      `)
+      .eq('owner_id', req.user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    res.json(requests);
+  } catch (err) {
+    console.error('Error fetching join requests:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   PUT /api/properties/join-requests/:requestId
+// @desc    Update status of a join request
+// @access  Private
+router.put('/join-requests/:requestId', authMiddleware, async (req, res) => {
+  const { status } = req.body;
+  if (!['approved', 'rejected'].includes(status)) {
+    return res.status(400).json({ message: 'Invalid status' });
+  }
+
+  try {
+    const { data: updated, error } = await supabase
+      .from('property_join_requests')
+      .update({ status })
+      .eq('id', req.params.requestId)
+      .eq('owner_id', req.user.id)
+      .select()
+      .single();
+
+    if (error || !updated) {
+      return res.status(404).json({ message: 'Request not found or unauthorized' });
+    }
+
+    // Phase G3: If approved, create property_tenants relationship
+    if (status === 'approved') {
+      const { error: relError } = await supabase
+        .from('property_tenants')
+        .insert({
+          property_id: updated.property_id,
+          tenant_id: updated.tenant_id,
+          status: 'active'
+        });
+      
+      // Ignore duplicate key errors if relationship already exists
+      if (relError && relError.code !== '23505') {
+        console.error('Error creating property_tenant relationship:', relError);
+        // Continue anyway since request was approved
+      }
+    }
+
+    res.json({ message: `Request ${status} successfully`, data: updated });
+  } catch (err) {
+    console.error('Error updating join request:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
+// @route   GET /api/properties/tenants
+// @desc    Get all active tenants for the owner's properties
+// @access  Private
+router.get('/tenants', authMiddleware, async (req, res) => {
+  try {
+    const { data: tenancies, error } = await supabase
+      .from('property_tenants')
+      .select(`
+        id,
+        status,
+        joined_at,
+        users!property_tenants_tenant_id_fkey (
+          id,
+          full_name,
+          email,
+          phone
+        ),
+        properties!inner (
+          id,
+          property_name,
+          owner_id,
+          rent_amount
+        )
+      `)
+      .eq('properties.owner_id', req.user.id)
+      .eq('status', 'active');
+
+    if (error) throw error;
+    res.json(tenancies);
+  } catch (err) {
+    console.error('Error fetching properties tenants:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 
 // @route   GET /api/properties/:id
 // @desc    Get a property by ID including images, tags, and contacts
@@ -44,6 +159,17 @@ router.get('/:id', authMiddleware, async (req, res) => {
     property.highlights = await db.select('property_highlights', { property_id: property.id });
     const pd = await db.selectFirst('property_details', { property_id: property.id });
     property.details = pd ? pd.details : {};
+
+    // Fetch tenants
+    const { data: tenancies } = await supabase
+      .from('property_tenants')
+      .select(`
+        id, status, joined_at,
+        users!property_tenants_tenant_id_fkey (id, full_name, email, phone)
+      `)
+      .eq('property_id', property.id);
+    
+    property.tenants = tenancies || [];
 
     res.json(property);
   } catch (err) {

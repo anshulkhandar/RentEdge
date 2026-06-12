@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { api } from './api';
 import { 
   Users, 
   Plus, 
@@ -34,8 +35,39 @@ interface Tenant {
   status: 'Active' | 'Pending Verification' | 'Notice Period';
 }
 
+
 export default function TenantManagement() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  React.useEffect(() => {
+    loadTenants();
+  }, []);
+
+  const loadTenants = async () => {
+    try {
+      setLoading(true);
+      const data = await api.getPropertyTenants();
+      const mappedTenants: Tenant[] = data.map((t: any) => ({
+        id: t.id,
+        name: t.users.full_name,
+        avatar: t.users.full_name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
+        email: t.users.email,
+        phone: t.users.phone || 'N/A',
+        property: t.properties.property_name,
+        leaseStart: new Date(t.joined_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+        leaseEnd: 'TBD',
+        rent: t.properties.rent_amount || 0,
+        score: 750, // mock score for now
+        status: t.status === 'active' ? 'Active' : 'Notice Period'
+      }));
+      setTenants(mappedTenants);
+    } catch (err) {
+      console.error('Failed to load tenants:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showLeaseModal, setShowLeaseModal] = useState<Tenant | null>(null);
@@ -155,7 +187,12 @@ export default function TenantManagement() {
 
       {/* Tenant List */}
       <div className="space-y-4">
-        {filteredTenants.length > 0 ? (
+        {loading ? (
+          <div className="py-12 text-center flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-2 border-brand-purple border-t-transparent rounded-full animate-spin" />
+            <span className="text-xs font-bold text-slate-400">Loading tenants...</span>
+          </div>
+        ) : filteredTenants.length > 0 ? (
           filteredTenants.map((tenant) => (
             <motion.div
               key={tenant.id}

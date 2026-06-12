@@ -6,13 +6,9 @@ import { ShieldCheck, KeyRound, CheckCircle2, ArrowRight, RefreshCw, Lock, Spark
 import { Property, mockProperties } from './propertiesData';
 import { api } from './api';
 
-const CODE_LENGTH = 6;
+const CODE_LENGTH = 8;
 
-const VALID_CODES: Record<string, { title: string; owner: string; area: string; propertyId: string }> = {
-  '123456': { title: 'HSR Smart Premium Suite',        owner: 'Rahul Malhotra',  area: 'HSR Layout, Bengaluru', propertyId: 'prop-4' },
-  '789012': { title: 'The Edge Residences – Indiranagar', owner: 'Rajvardhan Pawar', area: 'Indiranagar, Bengaluru', propertyId: 'prop-1' },
-  '654321': { title: 'Khar Oasis Smart Suite',         owner: 'Nisha Mehta',     area: 'Khar West, Mumbai', propertyId: 'prop-3' },
-};
+const VALID_CODES: Record<string, { title: string; owner: string; area: string; propertyId: string }> = {};
 
 interface MyPropertiesProps {
   onPropertySelect?: (property: Property) => void;
@@ -36,17 +32,22 @@ export default function MyProperties({ onPropertySelect }: MyPropertiesProps) {
   useEffect(() => {
     async function loadRentedProperties() {
       try {
-        const leases = await api.getMyLeases();
-        const properties = await Promise.all(
-          leases.filter((l: any) => l.status === 'Active').map(async (l: any) => {
-            try {
-              return await api.getProperty(l.propertyId);
-            } catch (e) {
-              return null;
-            }
-          })
-        );
-        setRentedProperties(properties.filter(p => p !== null));
+        const properties = await api.getMyProperties();
+        
+        // Map the backend properties to the frontend Property type
+        const formattedProps = properties.map((p: any) => ({
+          id: p.id,
+          title: p.property_name,
+          location: `${p.locality ? p.locality + ', ' : ''}${p.city}`,
+          price: p.rent_amount,
+          images: p.images?.length > 0 ? p.images.map((img: any) => img.image_url) : ['https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?q=80&w=2940&auto=format&fit=crop'],
+          depositMonths: Math.round((p.deposit_amount || 0) / (p.rent_amount || 1)),
+          ownerName: 'Owner', // Might want to fetch this properly if needed, but keeping it simple
+          ownerEmail: '',
+          city: p.city
+        }));
+        
+        setRentedProperties(formattedProps);
       } catch (err) {
         console.error('Failed to load rented properties:', err);
         setRentedProperties([]);
@@ -130,24 +131,12 @@ export default function MyProperties({ onPropertySelect }: MyPropertiesProps) {
     if (!isFull) return;
     setJoinState('verifying');
     try {
-      const response = await api.verifyAccessCode(code);
-      setMatchedProperty({
-        title: response.property.title,
-        owner: response.property.owner,
-        area: response.property.area,
-        propertyId: response.property.propertyId
-      });
+      await api.joinProperty(code);
       setJoinState('success');
-    } catch (err) {
-      console.error('Verify code error:', err);
-      // Fallback for mock demo codes
-      const found = dynamicCodes[code] || VALID_CODES[code];
-      if (found) {
-        setMatchedProperty(found);
-        setJoinState('success');
-      } else {
-        setJoinState('error');
-      }
+    } catch (err: any) {
+      console.error('Join code error:', err);
+      alert(err.message || 'Failed to submit join request');
+      setJoinState('error');
     }
   };
 
@@ -519,7 +508,7 @@ export default function MyProperties({ onPropertySelect }: MyPropertiesProps) {
             <div>
               <h2 className="text-base sm:text-lg md:text-2xl font-black text-white tracking-tight">Join a Property</h2>
               <p className="hidden sm:block text-xs text-slate-400 font-medium mt-1 leading-relaxed">
-                Enter the <span className="font-extrabold text-white">6-character property code</span> shared by your landlord.
+                Enter the <span className="font-extrabold text-white">8-character property code</span> shared by your landlord.
               </p>
             </div>
           </div>
@@ -528,7 +517,7 @@ export default function MyProperties({ onPropertySelect }: MyPropertiesProps) {
           <div className="w-full sm:flex-1 max-w-md shrink-0">
             <AnimatePresence mode="wait">
               {/* SUCCESS STATE */}
-              {joinState === 'success' && matchedProperty ? (
+              {joinState === 'success' ? (
                 <motion.div
                   key="success"
                   initial={{ opacity: 0, scale: 0.95 }}
@@ -536,48 +525,19 @@ export default function MyProperties({ onPropertySelect }: MyPropertiesProps) {
                   exit={{ opacity: 0, scale: 0.95 }}
                   className="space-y-3"
                 >
-                  <div className="bg-slate-950/60 rounded-xl border border-white/10 p-3 space-y-2">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="text-left">
-                        <span className="text-[8px] font-extrabold text-slate-500 uppercase tracking-widest block">PROPERTY</span>
-                        <span className="text-xs sm:text-sm font-black text-white mt-0.5 block truncate max-w-[180px]">{matchedProperty.title}</span>
-                      </div>
-                      <span className="shrink-0 inline-flex items-center gap-1 text-[8px] sm:text-[9px] font-black px-1.5 py-0.5 bg-brand-mint/10 text-brand-mint rounded-md border border-brand-mint/20">
-                        VERIFIED
-                      </span>
-                    </div>
-
-                    <div className="pt-2 border-t border-white/5 grid grid-cols-2 gap-3 text-left">
-                      <div>
-                        <span className="text-[8px] font-extrabold text-slate-500 uppercase tracking-widest block">DEED OWNER</span>
-                        <span className="text-[10px] sm:text-xs font-bold text-slate-300 mt-0.5 block truncate">{matchedProperty.owner}</span>
-                      </div>
-                      <div>
-                        <span className="text-[8px] font-extrabold text-slate-500 uppercase tracking-widest block">PREMISES AREA</span>
-                        <span className="text-[10px] sm:text-xs font-bold text-slate-300 mt-0.5 block truncate">{matchedProperty.area}</span>
-                      </div>
-                    </div>
+                  <div className="bg-emerald-950/60 rounded-xl border border-emerald-500/30 p-4 space-y-2 text-center flex flex-col items-center">
+                    <CheckCircle2 className="w-8 h-8 text-emerald-500 mb-1" />
+                    <span className="text-sm font-black text-white block">Request Sent Successfully!</span>
+                    <span className="text-[10px] sm:text-xs font-bold text-slate-300 block">
+                      Awaiting owner approval. You will be notified once they review your request.
+                    </span>
                   </div>
-
                   <div className="flex gap-2">
                     <button
-                      onClick={() => {
-                        if (!matchedProperty) return;
-                        const prop = getPropertyById(matchedProperty.propertyId);
-                        if (prop) {
-                          setViewedProperty(prop);
-                          if (onPropertySelect) onPropertySelect(prop);
-                        }
-                      }}
-                      className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-[10px] font-black rounded-lg transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] flex items-center justify-center gap-1 cursor-pointer"
-                    >
-                      Dashboard <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                    <button
                       onClick={handleReset}
-                      className="py-2.5 px-3 border border-white/10 hover:bg-white/5 text-slate-450 hover:text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                      className="w-full py-2.5 px-3 border border-white/10 hover:bg-white/5 text-slate-450 hover:text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
                     >
-                      Change
+                      Close
                     </button>
                   </div>
                 </motion.div>
@@ -624,18 +584,18 @@ export default function MyProperties({ onPropertySelect }: MyPropertiesProps) {
                           : 'bg-white/5 text-slate-500 cursor-not-allowed border border-white/5'
                       }`}
                     >
-                      {joinState === 'verifying' ? (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-brand-purple" />
-                          Verify...
-                        </>
-                      ) : (
-                        <>
-                          <ShieldCheck className="w-3.5 h-3.5" />
-                          Verify
-                        </>
-                      )}
-                    </button>
+                        {joinState === 'verifying' ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin text-brand-purple" />
+                            Submitting...
+                          </>
+                        ) : (
+                          <>
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            Submit Request
+                          </>
+                        )}
+                      </button>
                   </div>
                   {/* Empty spacer for error message if present */}
                   {joinState === 'error' && <div className="h-2" />}

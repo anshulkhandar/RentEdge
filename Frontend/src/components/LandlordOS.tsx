@@ -32,7 +32,7 @@ import {
   Sun,
   Moon
 } from 'lucide-react';
-import ProfileSettings from './ProfileSettings';
+import OwnerMyProfile from './OwnerMyProfile';
 import ListingWizard from './ListingWizard';
 import PropertyDetail from './PropertyDetail';
 import TenantManagement from './TenantManagement';
@@ -421,7 +421,6 @@ export default function LandlordOS({
     { id: 'dashboard', label: 'Overview', icon: Building2 },
     { id: 'properties', label: 'Properties', icon: Layers },
     { id: 'tenants', label: 'Tenants', icon: Users },
-    { id: 'financials', label: 'Financials', icon: Wallet },
     { id: 'settings', label: 'Settings', icon: Settings }
   ] as const;
 
@@ -981,7 +980,7 @@ export default function LandlordOS({
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
               >
-                <ProfileSettings />
+                <OwnerMyProfile onViewChange={(view) => setActiveTab(view as any)} />
               </motion.div>
             )}
 
@@ -1038,7 +1037,7 @@ export default function LandlordOS({
               )}
               <Icon className={`w-5 h-5 transition-colors ${isActive ? 'text-brand-purple' : 'text-slate-450 dark:text-slate-400'}`} />
               <span className={`text-[10px] font-black uppercase tracking-wide truncate max-w-[80px] text-center ${isActive ? 'text-brand-purple' : 'text-slate-450 dark:text-slate-400'}`}>
-                {item.label === 'Overview' ? 'Overview' : item.label === 'Properties' ? 'Props' : item.label === 'Tenants' ? 'Tenants' : item.label === 'Financials' ? 'Finance' : 'Settings'}
+                {item.label === 'Overview' ? 'Overview' : item.label === 'Properties' ? 'Props' : item.label === 'Tenants' ? 'Tenants' : 'Settings'}
               </span>
             </button>
           );

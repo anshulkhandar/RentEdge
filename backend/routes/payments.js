@@ -9,7 +9,7 @@ const authMiddleware = require('../middleware/auth');
 router.get('/', authMiddleware, async (req, res) => {
   try {
     let payments = [];
-    if (req.user.role === 'owner' || req.user.role === 'hostel') {
+    if (req.user.isOwner) {
       // Find all leases where owner is this user
       const leases = await db.select('leases', { ownerEmail: req.user.email });
       const leaseIds = leases.map(l => l.id);

@@ -12,7 +12,6 @@ import Pricing from '@/components/Pricing';
 import MobileNav from '@/components/MobileNav';
 import AuthModal from '@/components/AuthModal';
 import OwnerDashboard from '@/components/OwnerDashboard';
-import RentEdgeLayout from '@/components/Layout';
 import TenantLifecycleController from '@/components/TenantLifecycleController';
 import OwnerLifecycleController from '@/components/OwnerLifecycleController';
 import PageTransitionShell from '@/components/PageTransitionShell';

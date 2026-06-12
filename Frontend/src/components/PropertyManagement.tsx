@@ -4,8 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Building2, Plus, Edit2, Trash2, MapPin, Settings,
-  BedDouble, Bath, IndianRupee, Image as ImageIcon, 
-  X, CheckCircle2, ChevronRight, ChevronLeft, Upload, Loader2, Sparkles, Users
+  BedDouble, IndianRupee, Image as ImageIcon, 
+  X, CheckCircle2, ChevronRight, ChevronLeft, Upload, Loader2, Sparkles, Users,
+  Copy, Hash, Wallet, AlertTriangle, Mail, Phone
 } from 'lucide-react';
 import { IKContext, IKUpload } from 'imagekitio-react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
@@ -115,6 +116,14 @@ export default function PropertyManagement() {
   const [sessionId, setSessionId] = useState(() => `property_wizard_${Math.random().toString(36).substr(2, 9)}`);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+
+  const copyPropertyCode = (code: string) => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopiedCode(code);
+      setTimeout(() => setCopiedCode(null), 2000);
+    });
+  };
 
   // Wizard Form State
   const [formData, setFormData] = useState(INITIAL_FORM_DATA);
@@ -676,6 +685,22 @@ export default function PropertyManagement() {
                   <span className="truncate">{p.locality ? `${p.locality}, ` : ''}{p.city}</span>
                 </div>
                 
+                {p.property_code && (
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <div className="flex items-center gap-1 px-2 py-1 bg-brand-purple/5 border border-brand-purple/15 rounded-lg">
+                      <Hash className="w-3 h-3 text-brand-purple" />
+                      <span className="text-[11px] font-black text-brand-purple tracking-wider">{p.property_code}</span>
+                    </div>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); copyPropertyCode(p.property_code); }}
+                      className="p-1 rounded-md hover:bg-slate-100 transition-colors text-slate-400 hover:text-brand-purple"
+                      title="Copy Property Code"
+                    >
+                      {copiedCode === p.property_code ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                )}
+                
                 <div className="flex flex-wrap gap-1 mt-3 mb-2">
                   {p.tags?.slice(0, 5).map((t:any, idx:number) => (
                     <span key={idx} className="text-[9px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-bold border border-slate-200 uppercase tracking-wider flex items-center gap-1">🏷 {t.tag_name}</span>
@@ -701,7 +726,14 @@ export default function PropertyManagement() {
                 </div>
 
                 <div className="flex items-center justify-between border-t border-slate-100 pt-4">
-                  <button onClick={() => setViewingProperty(p)} className="text-xs font-bold text-brand-purple hover:underline">View Details</button>
+                  <button onClick={async () => {
+                    try {
+                      const fullProp = await api.getProperty(p.id);
+                      setViewingProperty(fullProp);
+                    } catch (err) {
+                      console.error('Failed to load property details:', err);
+                    }
+                  }} className="text-xs font-bold text-brand-purple hover:underline cursor-pointer">View Details</button>
                   <div className="flex items-center gap-2">
                     <button onClick={() => handleEdit(p)} className="p-1.5 text-slate-400 hover:text-blue-500 transition-colors bg-slate-50 hover:bg-blue-50 rounded-lg">
                       <Edit2 className="w-3.5 h-3.5" />
@@ -1386,7 +1418,25 @@ export default function PropertyManagement() {
               <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50 sticky top-0 z-10">
                 <div>
                   <h3 className="font-black text-slate-800 text-lg">{viewingProperty.property_name}</h3>
-                  <p className="text-xs text-slate-500 font-medium">Smart Classified Tags & Details</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-xs text-slate-500 font-medium">Smart Classified Tags & Details</p>
+                    {viewingProperty.property_code && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] text-slate-300">|</span>
+                        <div className="flex items-center gap-1 px-2 py-0.5 bg-brand-purple/10 border border-brand-purple/20 rounded-md">
+                          <Hash className="w-3 h-3 text-brand-purple" />
+                          <span className="text-[10px] font-black text-brand-purple tracking-wider">{viewingProperty.property_code}</span>
+                        </div>
+                        <button
+                          onClick={() => copyPropertyCode(viewingProperty.property_code)}
+                          className="p-1 rounded-md hover:bg-white transition-colors text-slate-400 hover:text-brand-purple"
+                          title="Copy Property Code"
+                        >
+                          {copiedCode === viewingProperty.property_code ? <CheckCircle2 className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <button onClick={() => setViewingProperty(null)} className="p-2 bg-white rounded-full text-slate-400 hover:text-slate-700 shadow-sm border border-slate-100 cursor-pointer">
                   <X className="w-4 h-4" />
@@ -1394,109 +1444,162 @@ export default function PropertyManagement() {
               </div>
 
               <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-slate-50/30">
-                {/* Visual grouping of tags */}
-                {(() => {
-                  const locationTagsList = ['Near Metro', 'Near Bus Stop', 'Near Railway', 'Near Airport', 'Tech Hub', 'Near Hospital', 'Near College', 'Near School'];
-                  const lifestyleTagsList = ['Premium Living', 'Budget Friendly', 'Bachelor Friendly', 'Couple Friendly', 'Family Friendly', 'Pet Friendly', 'Senior Citizen Friendly', 'Student Friendly'];
-                  const securityTagsList = ['Gated Community', 'CCTV Surveillance', '24/7 Security'];
-                  const amenitiesTagsList = ['Newly Constructed', 'Recently Renovated', 'Well Maintained', 'Power Backup', '24/7 Water', 'Food Included', 'Laundry Included', 'Room Cleaning'];
-
-                  const tags = viewingProperty.tags?.map((t:any) => t.tag_name) || [];
-                  
-                  const locationTags = tags.filter((t:string) => locationTagsList.includes(t));
-                  const lifestyleTags = tags.filter((t:string) => lifestyleTagsList.includes(t));
-                  const securityTags = tags.filter((t:string) => securityTagsList.includes(t));
-                  const amenitiesTags = tags.filter((t:string) => amenitiesTagsList.includes(t));
-
-                  // Find tags that didn't fit into the above
-                  const otherTags = tags.filter((t:string) => 
-                    !locationTagsList.includes(t) && 
-                    !lifestyleTagsList.includes(t) && 
-                    !securityTagsList.includes(t) && 
-                    !amenitiesTagsList.includes(t)
-                  );
-
-                  return (
-                    <div className="space-y-6">
-                      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:border-blue-200 transition-colors">
-                        <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-                          <MapPin className="w-4.5 h-4.5 text-blue-500" />
-                          Location & Connectivity
-                        </h4>
-                        <div className="flex flex-wrap gap-2">
-                          {locationTags.length > 0 ? locationTags.map((t:string, idx:number) => (
-                            <span key={idx} className="text-xs px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-bold border border-blue-100 flex items-center gap-1.5">
-                              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />
-                              {t}
-                            </span>
-                          )) : <span className="text-xs text-slate-400 font-medium italic">No location tags assigned.</span>}
-                        </div>
-                      </div>
-
-                      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:border-purple-200 transition-colors">
-                        <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-                          <Users className="w-4.5 h-4.5 text-purple-500" />
-                          Lifestyle & Target Audience
-                        </h4>
-                        <div className="flex flex-wrap gap-2">
-                          {lifestyleTags.length > 0 ? lifestyleTags.map((t:string, idx:number) => (
-                            <span key={idx} className="text-xs px-3 py-1.5 rounded-lg bg-purple-50 text-purple-700 font-bold border border-purple-100 flex items-center gap-1.5">
-                              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 shrink-0" />
-                              {t}
-                            </span>
-                          )) : <span className="text-xs text-slate-400 font-medium italic">No lifestyle tags assigned.</span>}
-                        </div>
-                      </div>
-
-                      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:border-emerald-200 transition-colors">
-                        <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-                          <CheckCircle2 className="w-4.5 h-4.5 text-emerald-500" />
-                          Safety & Security
-                        </h4>
-                        <div className="flex flex-wrap gap-2">
-                          {securityTags.length > 0 ? securityTags.map((t:string, idx:number) => (
-                            <span key={idx} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 font-bold border border-emerald-100 flex items-center gap-1.5">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                              {t}
-                            </span>
-                          )) : <span className="text-xs text-slate-400 font-medium italic">No security tags assigned.</span>}
-                        </div>
-                      </div>
-
-                      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:border-amber-200 transition-colors">
-                        <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-                          <Sparkles className="w-4.5 h-4.5 text-amber-500" />
-                          Property Quality & Amenities
-                        </h4>
-                        <div className="flex flex-wrap gap-2">
-                          {amenitiesTags.length > 0 ? amenitiesTags.map((t:string, idx:number) => (
-                            <span key={idx} className="text-xs px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 font-bold border border-amber-100 flex items-center gap-1.5">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                              {t}
-                            </span>
-                          )) : <span className="text-xs text-slate-400 font-medium italic">No amenity tags assigned.</span>}
-                        </div>
-                      </div>
-                      
-                      {otherTags.length > 0 && (
-                        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:border-slate-300 transition-colors">
-                          <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-                            <Plus className="w-4.5 h-4.5 text-slate-500" />
-                            Additional Tags
-                          </h4>
-                          <div className="flex flex-wrap gap-2">
-                            {otherTags.map((t:string, idx:number) => (
-                              <span key={idx} className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 font-bold border border-slate-200 flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0" />
-                                {t}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                <div className="space-y-8">
+                  {/* Property Information */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                    <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+                      <Building2 className="w-4.5 h-4.5 text-brand-purple" />
+                      Property Information
+                    </h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-semibold text-slate-700">
+                      <div><span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Type</span>{viewingProperty.property_type}</div>
+                      <div><span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Location</span>{viewingProperty.locality || viewingProperty.city}</div>
+                      <div><span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Monthly Rent</span>₹{viewingProperty.rent_amount?.toLocaleString() || 0}</div>
+                      <div><span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Deposit</span>₹{viewingProperty.deposit_amount?.toLocaleString() || 0}</div>
                     </div>
-                  );
-                })()}
+                    <div className="mt-4 text-xs text-slate-600 leading-relaxed">
+                      {viewingProperty.full_description || viewingProperty.short_description || 'No description provided.'}
+                    </div>
+                  </div>
+
+                  {/* Property Images */}
+                  {viewingProperty.images?.length > 0 && (
+                    <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                      <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <ImageIcon className="w-4.5 h-4.5 text-blue-500" />
+                        Property Images
+                      </h4>
+                      <div className="flex gap-4 overflow-x-auto pb-2">
+                        {viewingProperty.images.map((img:any) => (
+                          <div key={img.id} className="w-32 h-24 shrink-0 rounded-xl overflow-hidden border border-slate-200 relative">
+                            <img src={img.image_url} alt="Property" className="w-full h-full object-cover" />
+                            {img.is_cover && <div className="absolute top-1 right-1 bg-brand-purple text-white text-[8px] font-bold px-1.5 py-0.5 rounded">COVER</div>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Amenities */}
+                  {viewingProperty.amenities?.length > 0 && (
+                    <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                      <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <Sparkles className="w-4.5 h-4.5 text-amber-500" />
+                        Amenities
+                      </h4>
+                      <div className="flex flex-wrap gap-2">
+                        {viewingProperty.amenities.map((a:any) => (
+                          <span key={a.id} className="text-xs px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 font-bold border border-amber-100 flex items-center gap-1.5">
+                            {a.amenity_name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Contacts */}
+                  {viewingProperty.contacts?.length > 0 && (
+                    <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                      <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <Phone className="w-4.5 h-4.5 text-emerald-500" />
+                        Contacts
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {viewingProperty.contacts.map((c:any) => (
+                          <div key={c.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs flex flex-col gap-1">
+                            <span className="font-bold text-slate-800">{c.name} <span className="text-[9px] text-slate-500 font-bold uppercase ml-1">({c.role})</span></span>
+                            <span className="text-slate-600 flex items-center gap-1"><Phone className="w-3 h-3"/> {c.phone}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Visual grouping of tags */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                    <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+                      <Users className="w-4.5 h-4.5 text-purple-500" />
+                      Smart Tags
+                    </h4>
+                    {(() => {
+                      const locationTagsList = ['Near Metro', 'Near Bus Stop', 'Near Railway', 'Near Airport', 'Tech Hub', 'Near Hospital', 'Near College', 'Near School'];
+                      const lifestyleTagsList = ['Premium Living', 'Budget Friendly', 'Bachelor Friendly', 'Couple Friendly', 'Family Friendly', 'Pet Friendly', 'Senior Citizen Friendly', 'Student Friendly'];
+                      const securityTagsList = ['Gated Community', 'CCTV Surveillance', '24/7 Security'];
+                      const amenitiesTagsList = ['Newly Constructed', 'Recently Renovated', 'Well Maintained', 'Power Backup', '24/7 Water', 'Food Included', 'Laundry Included', 'Room Cleaning'];
+
+                      const tags = viewingProperty.tags?.map((t:any) => t.tag_name) || [];
+                      const otherTags = tags.filter((t:string) => 
+                        !locationTagsList.includes(t) && 
+                        !lifestyleTagsList.includes(t) && 
+                        !securityTagsList.includes(t) && 
+                        !amenitiesTagsList.includes(t)
+                      );
+
+                      return (
+                        <div className="flex flex-wrap gap-2">
+                          {tags.length > 0 ? tags.map((t:string, idx:number) => (
+                            <span key={idx} className="text-xs px-3 py-1.5 rounded-lg bg-slate-50 text-slate-700 font-bold border border-slate-100 flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0" />
+                              {t}
+                            </span>
+                          )) : <span className="text-xs text-slate-400 font-medium italic">No tags assigned.</span>}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Future Ready Placeholder */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-6 text-center opacity-70">
+                      <Wallet className="w-6 h-6 text-slate-400 mx-auto mb-2" />
+                      <span className="block text-[10px] font-black uppercase text-slate-500 tracking-wider">Rent Tracking</span>
+                      <span className="text-[9px] font-semibold text-slate-400 block mt-1">Coming Soon</span>
+                    </div>
+                    <div className="bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-6 text-center opacity-70">
+                      <CheckCircle2 className="w-6 h-6 text-slate-400 mx-auto mb-2" />
+                      <span className="block text-[10px] font-black uppercase text-slate-500 tracking-wider">Payment Status</span>
+                      <span className="text-[9px] font-semibold text-slate-400 block mt-1">Coming Soon</span>
+                    </div>
+                    <div className="bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-6 text-center opacity-70">
+                      <AlertTriangle className="w-6 h-6 text-slate-400 mx-auto mb-2" />
+                      <span className="block text-[10px] font-black uppercase text-slate-500 tracking-wider">Maintenance Requests</span>
+                      <span className="text-[9px] font-semibold text-slate-400 block mt-1">Coming Soon</span>
+                    </div>
+                  </div>
+
+                  {/* Tenants Section (Last) */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                    <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+                      <Users className="w-4.5 h-4.5 text-indigo-500" />
+                      Active Tenants
+                    </h4>
+                    {viewingProperty.tenants?.length > 0 ? (
+                      <div className="space-y-3">
+                        {viewingProperty.tenants.map((t:any) => (
+                          <div key={t.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-slate-50 border border-slate-100 rounded-xl">
+                            <div>
+                              <span className="font-bold text-slate-800 text-sm block">{t.users?.full_name}</span>
+                              <div className="flex items-center gap-3 text-[10px] text-slate-500 font-semibold mt-1">
+                                <span className="flex items-center gap-1"><Phone className="w-3 h-3"/> {t.users?.phone || 'N/A'}</span>
+                                <span className="flex items-center gap-1"><Mail className="w-3 h-3"/> {t.users?.email}</span>
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end">
+                               <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1">Joined {new Date(t.joined_at).toLocaleDateString()}</span>
+                               <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-100 text-emerald-600 font-bold text-[9px] uppercase rounded">
+                                 {t.status}
+                               </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-6 bg-slate-50 border border-dashed border-slate-200 rounded-xl">
+                        <span className="text-xs text-slate-400 font-bold">No active tenants assigned to this property.</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </motion.div>
           </div>

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { db } = require('../config/supabase');
+const { db, supabase } = require('../config/supabase');
 const authMiddleware = require('../middleware/auth');
 
 // @route   GET /api/tenants/me
@@ -67,6 +67,102 @@ router.get('/', authMiddleware, async (req, res) => {
     res.json(tenants);
   } catch (err) {
     console.error('Error fetching tenants list:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   POST /api/tenants/join-property
+// @desc    Tenant requests to join a property via code
+// @access  Private
+router.post('/join-property', authMiddleware, async (req, res) => {
+  const { propertyCode } = req.body;
+  if (!propertyCode) {
+    return res.status(400).json({ message: 'Property code is required.' });
+  }
+
+  try {
+    // 1. Find the property by code
+    const { data: property, error: propError } = await supabase
+      .from('properties')
+      .select('id, owner_id')
+      .eq('property_code', propertyCode.trim())
+      .maybeSingle();
+
+    if (propError || !property) {
+      return res.status(404).json({ message: 'Invalid property code. Property not found.' });
+    }
+
+    // 2. Check if request already exists
+    const { data: existingReq, error: existingError } = await supabase
+      .from('property_join_requests')
+      .select('id, status')
+      .eq('tenant_id', req.user.id)
+      .eq('property_id', property.id)
+      .maybeSingle();
+
+    if (existingReq) {
+      return res.status(400).json({ message: `You have already requested to join this property. Status: ${existingReq.status}` });
+    }
+
+    // 3. Create request
+    const { data: joinReq, error: joinError } = await supabase
+      .from('property_join_requests')
+      .insert({
+        tenant_id: req.user.id,
+        property_id: property.id,
+        owner_id: property.owner_id,
+        status: 'pending'
+      })
+      .select()
+      .single();
+
+    if (joinError) {
+      console.error('Error creating join request:', joinError);
+      return res.status(500).json({ message: 'Failed to submit join request.' });
+    }
+
+    res.status(201).json({ message: 'Join request submitted successfully.', data: joinReq });
+  } catch (err) {
+    console.error('Server error during join-property:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   GET /api/tenants/my-properties
+// @desc    Get properties the tenant is linked to
+// @access  Private
+router.get('/my-properties', authMiddleware, async (req, res) => {
+  try {
+    const { data: tenancies, error } = await supabase
+      .from('property_tenants')
+      .select(`
+        id,
+        status,
+        joined_at,
+        properties (*)
+      `)
+      .eq('tenant_id', req.user.id)
+      .eq('status', 'active');
+
+    if (error) throw error;
+    
+    // Map it to return a clean list of properties, possibly including tenancy info
+    // Similar to the /api/properties structure
+    const properties = tenancies.map(t => {
+      let p = t.properties;
+      p.tenancy_id = t.id;
+      p.joined_at = t.joined_at;
+      return p;
+    });
+
+    // We also need to fetch images for these properties
+    for (let prop of properties) {
+      prop.images = await db.select('property_images', { property_id: prop.id }, { column: 'display_order', ascending: true });
+    }
+
+    res.json(properties);
+  } catch (err) {
+    console.error('Error fetching my-properties:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });

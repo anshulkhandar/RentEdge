@@ -34,16 +34,21 @@ function writeLocalDb(data) {
 }
 
 // Check if a table exists in Supabase by running a dummy select
+// PERFORMANCE: Cache results to avoid redundant queries on every db operation
+const _tableExistsCache = {};
 async function tableExists(tableName) {
+  if (_tableExistsCache[tableName] !== undefined) return _tableExistsCache[tableName];
   try {
     const { error } = await supabase.from(tableName).select('id').limit(1);
     if (error && error.code === 'PGRST205') {
-      return false; // Table doesn't exist
+      _tableExistsCache[tableName] = false;
+      return false;
     }
     if (error) {
-      // Any other error (like column 'id' doesn't exist) suggests table exists
-      return error.code !== 'PGRST205';
+      _tableExistsCache[tableName] = error.code !== 'PGRST205';
+      return _tableExistsCache[tableName];
     }
+    _tableExistsCache[tableName] = true;
     return true;
   } catch (err) {
     return false;
